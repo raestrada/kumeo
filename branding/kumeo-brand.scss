@@ -1,0 +1,114 @@
+// Branding Colors
+
+// Primary Colors
+$primary-color: #00796B; // Dark Teal (Logo Background)
+$secondary-color: #28A745; // Green (Favicon Color)
+
+// Palette Colors
+$color-01: #00796B; // Srog 079 - Dark Teal
+$color-02: #28A745; // Srog 028 - Green
+$color-03: #4DBCE9; // Srog 013 - Light Blue
+$color-04: #BFEFFF; // Srog 078 - Very Light Blue
+$color-05: #FFFFFF; // Srog 017 - White
+$color-06: #E9F7EF; // Srog 001 - Light Greenish White
+$color-07: #6CB2EB; // Srog 077 - Medium Blue
+$color-08: #66BDFC; // Srog 074 - Light Blue
+$color-09: #004D40; // Srog 09 - Darker Teal
+$color-10: #48CFAD; // Srog 07 - Bright Teal
+
+// Text Colors
+$text-primary: #FFFFFF; // White for primary text
+$text-secondary: #333333; // Dark Gray for secondary text
+
+// Background Colors
+$bg-primary: $color-01; // Dark Teal for primary background
+$bg-secondary: $color-05; // White for secondary background
+
+// Favicon and Logo Colors
+$favicon-color: $secondary-color; // Green for the favicon
+$logo-text-color: $text-primary; // White for the logo text
+$logo-background-color: $bg-primary; // Dark Teal for the logo background
+
+// Typography
+$font-family-primary: 'Roboto', sans-serif;
+$font-family-secondary: 'Open Sans', sans-serif;
+
+// Font Sizes
+$font-size-h1: 2.5rem;
+$font-size-h2: 2rem;
+$font-size-h3: 1.5rem;
+$font-size-body: 1rem;
+
+// Spacing
+$spacing-xs: 0.5rem;
+$spacing-s: 1rem;
+$spacing-m: 1.5rem;
+$spacing-l: 2rem;
+$spacing-xl: 3rem;
+
+// Border Radius
+$border-radius-sm: 0.25rem;
+$border-radius-md: 0.5rem;
+$border-radius-lg: 1rem;
+
+// Box Shadows
+$box-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+$box-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.2);
+$box-shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.3);
+
+// Transitions
+$transition-default: all 0.3s ease;
+
+// General Styles
+body {
+  font-family: $font-family-primary;
+  color: $text-primary;
+  background-color: $bg-secondary;
+}
+
+h1, h2, h3 {
+  color: $text-primary;
+}
+
+a {
+  color: $secondary-color;
+  text-decoration: none;
+  transition: color $transition-default;
+}
+
+button {
+  background-color: $primary-color;
+  color: $text-primary;
+  border: none;
+  padding: $spacing-m;
+  border-radius: $border-radius-md;
+  cursor: pointer;
+  transition: background-color $transition-default;
+
+  &:hover {
+    background-color: darken($primary-color, 10%);
+  }
+}
+
+// Example of using colors in components
+.header {
+  background-color: $bg-primary;
+  color: $text-primary;
+  padding: $spacing-m;
+}
+
+.footer {
+  background-color: $bg-secondary;
+  color: $text-secondary;
+  padding: $spacing-l;
+}
+
+// Favicon and Logo Specific
+.favicon {
+  background-color: $favicon-color;
+}
+
+.logo {
+  color: $logo-text-color;
+  background-color: $logo-background-color;
+}

@@ -1,0 +1,38 @@
+{
+  "files.associations": {
+    "*.kumeo": "javascript"
+  },
+  "javascript.validate.enable": false,
+  "[javascript]": {
+    "editor.formatOnSave": false
+  },
+  "editor.tokenColorCustomizations": {
+    "textMateRules": [
+      {
+        "scope": "comment.line.double-slash.js",
+        "settings": {
+          "foreground": "#6A9955",
+          "fontStyle": "italic"
+        }
+      },
+      {
+        "scope": "keyword.control",
+        "settings": {
+          "foreground": "#569CD6"
+        }
+      },
+      {
+        "scope": "entity.name.type",
+        "settings": {
+          "foreground": "#4EC9B0"
+        }
+      },
+      {
+        "scope": "string",
+        "settings": {
+          "foreground": "#CE9178"
+        }
+      }
+    ]
+  }
+}

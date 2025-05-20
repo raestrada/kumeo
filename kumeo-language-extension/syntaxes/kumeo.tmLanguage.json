@@ -1,0 +1,102 @@
+{
+  "name": "Kumeo",
+  "scopeName": "source.kumeo",
+  "fileTypes": ["kumeo"],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#agents"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#constants"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.kumeo",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.kumeo",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.kumeo",
+          "match": "\\b(workflow|subworkflow|integration|source|target|context|agents|preprocessors|monitor|deployment|input|output|mapping|use)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.kumeo",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.kumeo",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.triple.kumeo",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.kumeo",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "agents": {
+      "patterns": [
+        {
+          "name": "entity.name.type.kumeo",
+          "match": "\\b(LLM|MLModel|BayesianNetwork|DecisionMatrix|KnowledgeBase|Database|DataNormalizer|MissingValueHandler|Router|HumanInLoop|RuleEngine|DecisionTree|DemographicAnalyzer|Aggregator|NATS)\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.kumeo",
+          "match": "\\bid\\s*:\\s*([\"'])([^\"']+)\\1"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.numeric.kumeo",
+          "match": "\\b\\d+(\\.\\d+)?\\b"
+        },
+        {
+          "name": "constant.language.kumeo",
+          "match": "\\b(true|false|null|auto)\\b"
+        }
+      ]
+    }
+  }
+}

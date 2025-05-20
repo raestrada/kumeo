@@ -1,0 +1,34 @@
+{
+  "name": "kumeo-language",
+  "displayName": "Kumeo Language",
+  "description": "Syntax highlighting for Kumeo workflow language",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "kumeo",
+        "aliases": [
+          "Kumeo",
+          "kumeo"
+        ],
+        "extensions": [
+          ".kumeo"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "kumeo",
+        "scopeName": "source.kumeo",
+        "path": "./syntaxes/kumeo.tmLanguage.json"
+      }
+    ]
+  }
+}

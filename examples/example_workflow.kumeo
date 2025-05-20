@@ -1,0 +1,11 @@
+workflow FraudDetection {
+  source: NATS("transactions")
+  target: NATS("alerts")
+  context: BayesianNetwork("risk.bn")
+
+  agents: [
+    LLM("ollama/llama3", prompt="Classify {{data}} as fraud? Context: {{context}}"),
+    MLModel("isolation_forest.pkl", input=LLM.output),
+    DecisionMatrix("policy.dmx", input=MLModel.output)
+  ]
+}
