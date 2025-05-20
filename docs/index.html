@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kumeo - Agent Orchestration, Simplified</title>
+    <meta name="description" content="Kumeo is a declarative language for orchestrating distributed agent workflows with LLMs, ML models, and event-driven systems">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="assets/images/favicon.png">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --primary-color: #00796B;
+            --primary-dark: #004D40;
+            --primary-light: #B2DFDB;
+            --secondary-color: #28A745;
+            --accent-color: #4DBCE9;
+            --light-bg: #E9F7EF;
+            --dark-bg: #1E293B;
+            --white: #FFFFFF;
+            --gray: #64748B;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        header {
+            background-color: var(--light-bg);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+        }
+        
+        .logo img {
+            height: 40px;
+            margin-right: 10px;
+        }
+        
+        .logo-text {
+            font-weight: 700;
+            font-size: 24px;
+            color: var(--primary-color);
+        }
+        
+        .nav-links {
+            display: flex;
+            list-style: none;
+        }
+        
+        .nav-links li {
+            margin-left: 30px;
+        }
+        
+        .nav-links a {
+            text-decoration: none;
+            color: var(--gray);
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+        
+        .nav-links a:hover {
+            color: var(--primary-color);
+        }
+        
+        .btn {
+            display: inline-block;
+            background-color: var(--primary-color);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+        
+        .btn-outline {
+            background-color: rgba(255, 255, 255, 0.25);
+            border: 2px solid white;
+            color: white;
+            font-weight: 600;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        .btn-outline:hover {
+            background-color: white;
+            color: var(--primary-color);
+            transform: translateY(-3px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .hero {
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            color: white;
+            padding: 100px 0;
+            text-align: center;
+        }
+        
+        .hero h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            font-weight: 700;
+        }
+        
+        .hero p {
+            font-size: 20px;
+            max-width: 800px;
+            margin: 0 auto 40px;
+            opacity: 0.9;
+        }
+        
+        .hero-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+        
+        .code-window {
+            background-color: var(--dark-bg);
+            border-radius: 10px;
+            max-width: 800px;
+            margin: 50px auto 0;
+            overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+        }
+        
+        .code-header {
+            background-color: #2d3748;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .code-dots {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        
+        .dot-red {
+            background-color: #ff5f57;
+        }
+        
+        .dot-yellow {
+            background-color: #febc2e;
+        }
+        
+        .dot-green {
+            background-color: #28c840;
+        }
+        
+        .code-title {
+            margin-left: 15px;
+            font-family: 'Fira Code', monospace;
+            font-size: 14px;
+            color: #a0aec0;
+        }
+        
+        .code-body {
+            padding: 20px;
+            font-family: 'Fira Code', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            overflow-x: auto;
+            color: #e2e8f0;
+            text-align: left;
+        }
+        
+        .code-body pre {
+            margin: 0;
+            text-align: left;
+        }
+        
+        .code-comment {
+            color: #6a9955;
+        }
+        
+        .code-keyword {
+            color: #569cd6;
+        }
+        
+        .code-string {
+            color: #ce9178;
+        }
+        
+        .code-function {
+            color: #4ec9b0;
+        }
+        
+        .features {
+            padding: 100px 0;
+            background-color: var(--white);
+        }
+        
+        .section-header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+        
+        .section-header h2 {
+            font-size: 36px;
+            color: var(--primary-color);
+            margin-bottom: 15px;
+        }
+        
+        .section-header p {
+            font-size: 18px;
+            color: var(--gray);
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+        }
+        
+        .feature-card {
+            background-color: var(--white);
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+        }
+        
+        .feature-icon {
+            width: 50px;
+            height: 50px;
+            background-color: var(--light-bg);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        
+        .feature-icon i {
+            font-size: 24px;
+            color: var(--primary-color);
+        }
+        
+        .feature-card h3 {
+            font-size: 20px;
+            margin-bottom: 15px;
+            color: var(--primary-color);
+        }
+        
+        .feature-card p {
+            color: var(--gray);
+            font-size: 16px;
+        }
+        
+        .architecture {
+            padding: 100px 0;
+            background-color: var(--light-bg);
+        }
+        
+        .architecture-content {
+            display: flex;
+            align-items: center;
+            gap: 50px;
+        }
+        
+        .architecture-text {
+            flex: 1;
+        }
+        
+        .architecture-text h2 {
+            font-size: 36px;
+            color: var(--primary-color);
+            margin-bottom: 15px;
+        }
+        
+        .architecture-text p {
+            font-size: 16px;
+            color: var(--gray);
+            margin-bottom: 20px;
+        }
+        
+        .architecture-image {
+            flex: 1;
+            text-align: center;
+        }
+        
+        .architecture-image img {
+            max-width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+        
+        .cta {
+            padding: 100px 0;
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            color: white;
+            text-align: center;
+        }
+        
+        .cta h2 {
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
+        
+        .cta p {
+            font-size: 18px;
+            max-width: 700px;
+            margin: 0 auto 40px;
+            opacity: 0.9;
+        }
+        
+        footer {
+            background-color: var(--dark-bg);
+            color: white;
+            padding: 50px 0;
+        }
+        
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+        
+        .footer-logo {
+            flex: 1;
+            min-width: 200px;
+            margin-bottom: 30px;
+        }
+        
+        .footer-logo img {
+            height: 40px;
+            margin-bottom: 15px;
+        }
+        
+        .footer-logo p {
+            color: #a0aec0;
+            font-size: 14px;
+            max-width: 300px;
+        }
+        
+        .footer-links {
+            flex: 2;
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+        }
+        
+        .footer-column {
+            min-width: 150px;
+            margin-bottom: 30px;
+        }
+        
+        .footer-column h3 {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: white;
+        }
+        
+        .footer-column ul {
+            list-style: none;
+        }
+        
+        .footer-column li {
+            margin-bottom: 10px;
+        }
+        
+        .footer-column a {
+            color: #a0aec0;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+        
+        .footer-column a:hover {
+            color: white;
+        }
+        
+        .social-links {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .social-link {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.3s;
+        }
+        
+        .social-link:hover {
+            background-color: var(--primary-color);
+        }
+        
+        .social-link i {
+            color: white;
+            font-size: 16px;
+        }
+        
+        .footer-bottom {
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            margin-top: 30px;
+            padding-top: 30px;
+            text-align: center;
+            color: #a0aec0;
+            font-size: 14px;
+        }
+        
+        /* Mobile responsiveness */
+        @media (max-width: 768px) {
+            .navbar {
+                flex-direction: column;
+                padding: 15px 0;
+            }
+            
+            .nav-links {
+                margin-top: 15px;
+                justify-content: center;
+            }
+            
+            .nav-links li {
+                margin: 0 10px;
+            }
+            
+            .hero h1 {
+                font-size: 36px;
+            }
+            
+            .hero p {
+                font-size: 18px;
+            }
+            
+            .hero-buttons {
+                flex-direction: column;
+                align-items: center;
+                gap: 10px;
+            }
+            
+            .architecture-content {
+                flex-direction: column;
+            }
+            
+            .architecture-text, .architecture-image {
+                flex: none;
+                width: 100%;
+            }
+            
+            .footer-content {
+                flex-direction: column;
+            }
+            
+            .footer-logo, .footer-links {
+                flex: none;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <nav class="navbar">
+                <div class="logo">
+                    <img src="assets/images/logo-stretch.png" alt="Kumeo Logo">
+                </div>
+                <ul class="nav-links">
+                    <li><a href="#features">Features</a></li>
+                    <li><a href="#architecture">Architecture</a></li>
+                    <li><a href="docs/">Documentation</a></li>
+                    <li><a href="https://github.com/raestrada/kumeo" target="_blank">GitHub</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+    
+    <section class="hero">
+        <div class="container">
+            <h1>Agent Orchestration, Simplified</h1>
+            <p>A declarative language for orchestrating distributed agent workflows with LLMs, ML models, and event-driven systems</p>
+            <div class="hero-buttons">
+                <a href="docs/getting-started" class="btn">Get Started</a>
+                <a href="https://github.com/raestrada/kumeo" class="btn btn-outline">View on GitHub</a>
+            </div>
+            
+            <div class="code-window">
+                <div class="code-header">
+                    <div class="code-dots">
+                        <div class="dot dot-red"></div>
+                        <div class="dot dot-yellow"></div>
+                        <div class="dot dot-green"></div>
+                    </div>
+                    <div class="code-title">example.kumeo</div>
+                </div>
+                <div class="code-body">
+<pre><span class="code-comment">// Define a workflow for fraud detection</span>
+<span class="code-keyword">workflow</span> FraudDetection {
+  <span class="code-keyword">source</span>: <span class="code-function">NATS</span>(<span class="code-string">"transactions"</span>)
+  <span class="code-keyword">target</span>: <span class="code-function">NATS</span>(<span class="code-string">"alerts"</span>)
+  <span class="code-keyword">context</span>: <span class="code-function">BayesianNetwork</span>(<span class="code-string">"risk.bn"</span>)
+
+  <span class="code-keyword">agents</span>: [
+    <span class="code-function">LLM</span>(<span class="code-string">"ollama/llama3"</span>, prompt=<span class="code-string">"Classify {{data}} as fraud? Context: {{context}}"</span>),
+    <span class="code-function">MLModel</span>(<span class="code-string">"isolation_forest.pkl"</span>, input=LLM.output),
+    <span class="code-function">DecisionMatrix</span>(<span class="code-string">"policy.dmx"</span>, input=MLModel.output)
+  ]
+}</pre>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-header">
+                <h2>Key Features</h2>
+                <p>Kumeo provides powerful tools to connect heterogeneous agents into coherent, event-driven workflows</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-code"></i>
+                    </div>
+                    <h3>Declarative Workflows</h3>
+                    <p>Define agent interactions as event-driven flows using a simple, readable syntax that focuses on what you want to achieve, not how.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <h3>Agent Types</h3>
+                    <p>Support for LLMs (Ollama/OpenAI), ML models (scikit-learn, ONNX), Bayesian networks, and human-in-the-loop integration.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-exchange-alt"></i>
+                    </div>
+                    <h3>Event Orchestration</h3>
+                    <p>Built on NATS for real-time, distributed communication between agents, with support for persistent streams and replay.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-dharmachakra"></i>
+                    </div>
+                    <h3>Kubernetes Native</h3>
+                    <p>Auto-generates deployment manifests for scalable infrastructure, making it easy to deploy and manage in production.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-desktop"></i>
+                    </div>
+                    <h3>Visual Editor</h3>
+                    <p>Svelte-based UI for workflow design and monitoring, making it easy to create and visualize complex agent interactions.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-tachometer-alt"></i>
+                    </div>
+                    <h3>High Performance</h3>
+                    <p>Compiles to Rust for minimal overhead and maximum throughput, making it suitable for production workloads.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <section class="architecture" id="architecture">
+        <div class="container">
+            <div class="architecture-content">
+                <div class="architecture-text">
+                    <h2>Architecture Overview</h2>
+                    <p>Kumeo is built on a modern, scalable architecture that connects heterogeneous agents through a central event system.</p>
+                    <p>The compiler transforms declarative workflows into optimized Rust code and Kubernetes manifests, which are then deployed to your infrastructure.</p>
+                    <p>Agents communicate through NATS, a high-performance messaging system that ensures reliable event delivery, even in distributed environments.</p>
+                    <a href="docs/architecture" class="btn">Learn More</a>
+                </div>
+                <div class="architecture-image">
+                    <img src="assets/images/architecture.png" alt="Kumeo Architecture Diagram">
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <section class="cta">
+        <div class="container">
+            <h2>Ready to Build Your Agent Workflows?</h2>
+            <p>Get started with Kumeo today and transform how your LLMs, ML models, and other agents collaborate.</p>
+            <a href="docs/getting-started" class="btn">Get Started</a>
+        </div>
+    </section>
+    
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-logo">
+                    <img src="assets/images/logo-stretch.png" alt="Kumeo Logo">
+                    <p>An open-source project dedicated to simplifying the orchestration of heterogeneous agents in distributed workflows.</p>
+                    <div class="social-links">
+                        <a href="https://github.com/raestrada/kumeo" class="social-link" target="_blank">
+                            <i class="fab fa-github"></i>
+                        </a>
+                        <a href="https://twitter.com/your-handle" class="social-link" target="_blank">
+                            <i class="fab fa-twitter"></i>
+                        </a>
+                        <a href="https://discord.gg/" class="social-link" target="_blank">
+                            <i class="fab fa-discord"></i>
+                        </a>
+                    </div>
+                </div>
+                <div class="footer-links">
+                    <div class="footer-column">
+                        <h3>Resources</h3>
+                        <ul>
+                            <li><a href="docs/">Documentation</a></li>
+                            <li><a href="docs/tutorials">Tutorials</a></li>
+                            <li><a href="docs/api">API Reference</a></li>
+                            <li><a href="docs/examples">Examples</a></li>
+                        </ul>
+                    </div>
+                    <div class="footer-column">
+                        <h3>Community</h3>
+                        <ul>
+                            <li><a href="https://github.com/raestrada/kumeo">GitHub</a></li>
+                            <li><a href="https://github.com/raestrada/kumeo/discussions">Discussions</a></li>
+                            <li><a href="https://discord.gg/">Discord</a></li>
+                            <li><a href="https://twitter.com/your-handle">Twitter</a></li>
+                        </ul>
+                    </div>
+                    <div class="footer-column">
+                        <h3>Project</h3>
+                        <ul>
+                            <li><a href="https://github.com/raestrada/kumeo/blob/main/LICENSE">License</a></li>
+                            <li><a href="https://github.com/raestrada/kumeo/blob/main/CONTRIBUTING.md">Contributing</a></li>
+                            <li><a href="https://github.com/raestrada/kumeo/blob/main/CODE_OF_CONDUCT.md">Code of Conduct</a></li>
+                            <li><a href="https://github.com/raestrada/kumeo/security/policy">Security</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 Kumeo. Licensed under GNU GPL v3.0.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

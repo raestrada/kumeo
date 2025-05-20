@@ -1,0 +1,38 @@
+title: Kumeo Documentation
+description: Documentation for Kumeo - A declarative language for orchestrating distributed agent workflows
+baseurl: "/kumeo" # the subpath of your site, e.g. /blog
+url: "https://raestrada.github.io" # the base hostname & protocol for your site, e.g. http://example.com
+
+# Theme settings
+theme: just-the-docs
+color_scheme: kumeo
+search_enabled: true
+
+# Set a path/url to a logo that will be displayed instead of the title
+logo: "/assets/images/logo.png"
+
+# Aux links for the upper right navigation
+aux_links:
+  "Kumeo on GitHub":
+    - "https://github.com/raestrada/kumeo"
+
+# Makes Aux links open in a new tab
+aux_links_new_tab: true
+
+# Footer content
+footer_content: "Copyright &copy; 2025 Kumeo. Distributed under the <a href=\"https://github.com/raestrada/kumeo/blob/main/LICENSE\">GNU General Public License v3.0</a>."
+
+# Back to top link
+back_to_top: true
+back_to_top_text: "Back to top"
+
+# Footer last edited timestamp
+last_edit_timestamp: true
+last_edit_time_format: "%b %e %Y at %I:%M %p"
+
+# Footer "Edit this page on GitHub" link
+gh_edit_link: true
+gh_edit_link_text: "Edit this page on GitHub"
+gh_edit_repository: "https://github.com/raestrada/kumeo"
+gh_edit_branch: "main"
+gh_edit_view_mode: "tree"

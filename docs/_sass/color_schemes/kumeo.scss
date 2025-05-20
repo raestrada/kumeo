@@ -1,0 +1,35 @@
+// Kumeo theme color scheme
+// Based on the branding colors from kumeo-brand.scss
+
+// Color variables
+$primary-color: #00796B; // Dark Teal
+$secondary-color: #28A745; // Green
+$light-blue: #4DBCE9;
+$very-light-blue: #BFEFFF;
+$white: #FFFFFF;
+$light-greenish-white: #E9F7EF;
+$medium-blue: #6CB2EB;
+$darker-teal: #004D40;
+$text-primary: $white;
+$text-secondary: #333333;
+
+// Layout color variables
+$body-background-color: $white;
+$sidebar-color: $light-greenish-white;
+$search-background-color: $white;
+$table-background-color: $white;
+$code-background-color: $light-greenish-white;
+
+// Text color variables
+$body-text-color: $text-secondary;
+$body-heading-color: $primary-color;
+$search-result-preview-color: $text-secondary;
+$nav-child-link-color: $darker-teal;
+$link-color: $primary-color;
+$btn-primary-color: $primary-color;
+$base-button-color: $light-blue;
+
+// Border color variables
+$border-color: lighten($primary-color, 50%);
+$table-border-color: lighten($primary-color, 50%);
+$feedback-color: darken($sidebar-color, 3%);
