@@ -1,0 +1,29 @@
+[package]
+name = "kumeo-compiler"
+version = "0.1.0"
+edition = "2021"
+description = "Compiler for the Kumeo DSL"
+authors = ["Kumeo Contributors"]
+license = "GPL-3.0-or-later"
+
+[build-dependencies]
+lalrpop = "0.20.0"
+
+[dependencies]
+lalrpop-util = { version = "0.20.0", features = ["lexer"] }
+logos = "0.13.0"      # For lexing
+thiserror = "1.0.40"  # Error handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"    # JSON serialization
+
+# CLI dependencies (commented out for now to simplify testing)
+# clap = { version = "4.3", features = ["derive"] } # CLI argument parsing
+
+[features]
+default = []
+
+# Features temporarily simplified for lexer testing
+
+[[bin]]
+name = "kumeo"
+path = "src/main.rs"

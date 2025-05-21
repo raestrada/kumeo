@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "compiler",
+]
+resolver = "2"
+
+[workspace.package]
+authors = ["Kumeo Contributors"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/raestrada/kumeo"
+edition = "2021"

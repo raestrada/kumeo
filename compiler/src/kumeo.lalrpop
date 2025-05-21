@@ -1,0 +1,118 @@
+use std::str::FromStr;
+use std::collections::HashMap;
+use crate::ast::{Program, Workflow, Source, Target, Agent, AgentType, Argument, Value};
+
+// Define grammar that directly parses strings, not using our Logos lexer
+grammar;
+
+pub Program: Program = {
+    <workflows:Workflow*> => {
+        let mut program = Program::new();
+        program.workflows = workflows;
+        program
+    }
+};
+
+Workflow: Workflow = {
+    "workflow" <name:Identifier> "{" 
+        <source:SourceDef?> 
+        <target:TargetDef?> 
+        <agents:AgentsDef> 
+    "}" => Workflow {
+        name: name,
+        source: source,
+        target: target,
+        context: None,
+        preprocessors: None,
+        agents: agents,
+        monitor: None,
+        deployment: None,
+    }
+};
+
+SourceDef: Source = {
+    "source" ":" <source_value:SourceValue> => source_value
+};
+
+TargetDef: Target = {
+    "target" ":" <target_value:TargetValue> => target_value
+};
+
+AgentsDef: Vec<Agent> = {
+    "agents" ":" "[" <agents:Agent*> "]" => agents
+};
+
+SourceValue: Source = {
+    <name:Identifier> "(" <topic:StringLiteral> ")" => 
+        match name.as_str() {
+            "NATS" => Source::NATS(topic, None),
+            "HTTP" => Source::HTTP(topic, None),
+            "Kafka" => Source::Kafka(topic, None),
+            "MQTT" => Source::MQTT(topic, None),
+            _ => Source::Custom(name, vec![Value::String(topic)])
+        }
+};
+
+TargetValue: Target = {
+    <name:Identifier> "(" <topic:StringLiteral> ")" => 
+        match name.as_str() {
+            "NATS" => Target::NATS(topic, None),
+            "HTTP" => Target::HTTP(topic, None),
+            "Kafka" => Target::Kafka(topic, None),
+            "MQTT" => Target::MQTT(topic, None),
+            _ => Target::Custom(name, vec![Value::String(topic)])
+        }
+};
+
+Agent: Agent = {
+    <agent_type:AgentType> "(" <args:Arguments> ")" => {
+        let mut id = None;
+        let mut config = Vec::new();
+        
+        for arg in args {
+            if let Argument::Named(name, Value::String(value)) = &arg {
+                if name == "id" {
+                    id = Some(value.clone());
+                } else {
+                    config.push(arg.clone());
+                }
+            } else {
+                config.push(arg.clone());
+            }
+        }
+        
+        Agent {
+            id,
+            agent_type,
+            config,
+        }
+    }
+};
+
+// Add support for comma-separated arguments
+Arguments: Vec<Argument> = {
+    <head:Argument> <tail:("," Argument)*> => {
+        let mut args = vec![head];
+        args.extend(tail.into_iter().map(|(_, arg)| arg));
+        args
+    },
+    => Vec::new()
+};
+
+AgentType: AgentType = {
+    "LLM" => AgentType::LLM,
+    "MLModel" => AgentType::MLModel,
+    <name:Identifier> => AgentType::Custom(name)
+};
+
+Argument: Argument = {
+    <name:Identifier> ":" <value:StringLiteral> => 
+        Argument::Named(name, Value::String(value)),
+};
+
+Identifier: String = <s:r"[a-zA-Z_][a-zA-Z0-9_]*"> => s.to_string();
+
+StringLiteral: String = <s:r#""([^"\\]|\\.)*""#> => {
+    let content = &s[1..s.len()-1]; // Remove quotes
+    content.to_string()
+};
