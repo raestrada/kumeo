@@ -1,6 +1,6 @@
 use std::str::FromStr;
 use std::collections::HashMap;
-use crate::ast::{Program, Workflow, Source, Target, Agent, AgentType, Argument, Value};
+use crate::ast::{Program, Workflow, Source, Target, Context, Agent, AgentType, Argument, Value};
 
 // Define grammar that directly parses strings, not using our Logos lexer
 grammar;
@@ -17,12 +17,13 @@ Workflow: Workflow = {
     "workflow" <name:Identifier> "{" 
         <source:SourceDef?> 
         <target:TargetDef?> 
+        <context:ContextDef?>
         <agents:AgentsDef> 
     "}" => Workflow {
         name: name,
         source: source,
         target: target,
-        context: None,
+        context: context,
         preprocessors: None,
         agents: agents,
         monitor: None,
@@ -102,7 +103,27 @@ Arguments: Vec<Argument> = {
 AgentType: AgentType = {
     "LLM" => AgentType::LLM,
     "MLModel" => AgentType::MLModel,
+    "BayesianNetwork" => AgentType::BayesianNetwork,
     <name:Identifier> => AgentType::Custom(name)
+};
+
+// Add support for Context
+ContextDef: Context = {
+    "context" ":" "KnowledgeBase" "(" <name:StringLiteral> ")" => {
+        Context::KnowledgeBase(name, None)
+    },
+    "context" ":" "BayesianNetwork" "(" <name:StringLiteral> ")" => {
+        Context::BayesianNetwork(name, None)
+    },
+    "context" ":" "Database" "(" <db_type:StringLiteral> "," <conn_string:StringLiteral> ")" => {
+        Context::Database(db_type, conn_string)
+    },
+    "context" ":" <name:Identifier> "(" <args:Arguments> ")" => {
+        Context::Custom(name, args.into_iter().map(|a| match a {
+            Argument::Named(_, v) => v,
+            Argument::Positional(v) => v
+        }).collect())
+    }
 };
 
 Argument: Argument = {
