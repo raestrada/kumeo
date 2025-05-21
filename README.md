@@ -88,6 +88,60 @@ workflow FraudDetection {
 
 ---
 
+## 💻 Development Guide
+
+### Prerequisites
+
+- Rust toolchain (1.65 or newer)
+- LALRPOP installed (`cargo install lalrpop`)
+- Optional: NATS server for testing integrations
+
+### Building the Compiler
+
+```bash
+# Clone the repository
+git clone https://github.com/raestrada/kumeo.git
+cd kumeo
+
+# Build the compiler
+cd compiler
+cargo build
+
+# Run tests
+cargo test
+```
+
+### Running the Compiler
+
+```bash
+# Development mode
+cargo run -- --input examples/simple.kumeo --output dist/
+
+# Or using the compiled binary
+./target/debug/kumeo-compiler --input examples/simple.kumeo --output dist/
+```
+
+### Development Workflow
+
+1. Make your changes to the compiler code
+2. Run tests: `cargo test`
+3. Format your code: `cargo fmt`
+4. Check for issues: `cargo clippy`
+5. Build: `cargo build`
+
+### Docker Build
+
+```bash
+# Build the Docker image
+cd compiler
+docker build -t kumeo-compiler .
+
+# Run the compiler using Docker
+docker run -v $(pwd)/examples:/examples -v $(pwd)/dist:/dist kumeo-compiler --input /examples/simple.kumeo --output /dist/
+```
+
+---
+
 ## 🤝 Contributing  
 1. Fork the repo  
 2. Create a feature branch (`git checkout -b feature/awesome-changes`)  
