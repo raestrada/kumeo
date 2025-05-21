@@ -1,0 +1,120 @@
+name: Kumeo CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        working-directory: ./compiler
+        run: cargo build --verbose
+
+      - name: Run tests
+        working-directory: ./compiler
+        run: cargo test --verbose
+
+      - name: Run clippy
+        working-directory: ./compiler
+        run: cargo clippy -- -D warnings
+
+      - name: Check formatting
+        working-directory: ./compiler
+        run: cargo fmt -- --check
+
+  dependency-check:
+    name: Dependency Vulnerability Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run cargo-audit
+        working-directory: ./compiler
+        run: cargo audit
+
+  sast-analysis:
+    name: Static Security Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+
+      # Run cargo-deny for license and vulnerability checking
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny
+
+      - name: Run cargo-deny check
+        working-directory: ./compiler
+        run: cargo deny check
+
+      # Run Rust code security analysis with CodeQL
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: rust
+
+      - name: Build for CodeQL
+        working-directory: ./compiler
+        run: cargo build
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:rust"
+
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./compiler
+          push: false
+          tags: kumeo-compiler:test
+          file: ./compiler/Dockerfile
+          outputs: type=docker,dest=/tmp/kumeo-compiler.tar
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

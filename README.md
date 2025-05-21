@@ -6,6 +6,8 @@
 
 # Kumeo 🚀  
 
+[![Kumeo CI](https://github.com/raestrada/kumeo/actions/workflows/ci.yml/badge.svg)](https://github.com/raestrada/kumeo/actions/workflows/ci.yml)
+
 **A declarative language for orchestrating distributed agent workflows with LLMs, ML models, and event-driven systems**  
 
 Kumeo (from *kume*, meaning *"together"* in Mapudungun) is a domain-specific language (DSL) designed to define complex workflows where heterogeneous agents collaborate via events. It compiles to Rust for performance, uses NATS for event streaming, and deploys to Kubernetes for scalability.  
