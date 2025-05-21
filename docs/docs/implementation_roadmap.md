@@ -8,7 +8,7 @@ This document outlines the step-by-step approach to implementing the Kumeo platf
 
 - [x] Define core syntax and grammar
 - [x] Design type system for agent interactions
-- [ ] Create formal language specification
+- [x] Create formal language specification
 - [ ] Develop parser using LALRPOP or similar tool
 - [ ] Implement abstract syntax tree (AST) representation
 

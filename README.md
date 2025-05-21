@@ -1,5 +1,7 @@
 <div align="center">
-  <img src="./branding/logo.png" alt="Kumeo Logo" width="200">
+  <a href="https://raestrada.github.io/kumeo/">
+    <img src="./branding/logo.png" alt="Kumeo Logo" width="200">
+  </a>
 </div>
 
 # Kumeo 🚀  
@@ -16,6 +18,18 @@ Kumeo (from *kume*, meaning *"together"* in Mapudungun) is a domain-specific lan
 - **Event Orchestration**: Built on NATS for real-time, distributed communication  
 - **Kubernetes Native**: Auto-generates deployment manifests for scalable infrastructure  
 - **Visual Editor**: Svelte-based UI for workflow design and monitoring  
+
+---
+
+## 📝 Language Specification
+
+<div align="center">
+
+**[View the complete Kumeo Language Specification](https://github.com/raestrada/kumeo/blob/main/compiler/spec/language_specification.md)**
+
+Comprehensive documentation of syntax, grammar, type system, and execution semantics
+
+</div>
 
 ---
 
