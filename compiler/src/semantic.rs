@@ -1,4 +1,4 @@
-use crate::ast::{Program, Workflow, Subworkflow, Agent, Integration, Context};
+use crate::ast::{Program, Workflow, Subworkflow, Integration};
 use crate::error::{KumeoError, Result};
 use std::collections::{HashMap, HashSet};
 
@@ -14,8 +14,6 @@ pub struct SemanticAnalyzer {
 pub struct SymbolTable {
     workflows: HashMap<String, Workflow>,
     subworkflows: HashMap<String, Subworkflow>,
-    // Track currently analyzed context for scope management
-    current_context: Option<String>,
 }
 
 impl SymbolTable {
@@ -24,7 +22,6 @@ impl SymbolTable {
         Self {
             workflows: HashMap::new(),
             subworkflows: HashMap::new(),
-            current_context: None,
         }
     }
 
@@ -79,10 +76,10 @@ impl SemanticAnalyzer {
     /// Analyze a program for semantic correctness
     pub fn analyze(&mut self, program: &Program) -> Result<()> {
         // First pass: collect all declarations
-        self.collect_declarations(program);
+        let _ = self.collect_declarations(program);
         
         // Second pass: validate references
-        self.validate_references(program);
+        let _ = self.validate_references(program);
         
         // If there are any errors, return the first one
         if !self.errors.is_empty() {
@@ -118,7 +115,64 @@ impl SemanticAnalyzer {
             self.validate_integration(integration)?;
         }
         
-        // TODO: Validate agent references, context, etc.
+        // Validate agent references in workflows
+        for workflow in &program.workflows {
+            self.validate_workflow_agents(workflow)?;
+        }
+        
+        // Validate agent references in subworkflows
+        for subworkflow in &program.subworkflows {
+            self.validate_subworkflow_agents(subworkflow)?;
+        }
+        
+        Ok(())
+    }
+    
+    /// Validate agent IDs within a workflow to ensure they're unique
+    fn validate_workflow_agents(&mut self, workflow: &Workflow) -> Result<()> {
+        let mut agent_ids = HashSet::new();
+        
+        // Check agents for unique IDs
+        for agent in &workflow.agents {
+            if let Some(id) = &agent.id {
+                if !agent_ids.insert(id.clone()) {
+                    self.errors.push(KumeoError::SemanticError(
+                        format!("Duplicate agent ID '{}' in workflow '{}'", id, workflow.name)
+                    ));
+                }
+            }
+        }
+        
+        // Also check preprocessors if present
+        if let Some(preprocessors) = &workflow.preprocessors {
+            for agent in preprocessors {
+                if let Some(id) = &agent.id {
+                    if !agent_ids.insert(id.clone()) {
+                        self.errors.push(KumeoError::SemanticError(
+                            format!("Duplicate agent ID '{}' in workflow '{}'", id, workflow.name)
+                        ));
+                    }
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Validate agent IDs within a subworkflow to ensure they're unique
+    fn validate_subworkflow_agents(&mut self, subworkflow: &Subworkflow) -> Result<()> {
+        let mut agent_ids = HashSet::new();
+        
+        // Check agents for unique IDs
+        for agent in &subworkflow.agents {
+            if let Some(id) = &agent.id {
+                if !agent_ids.insert(id.clone()) {
+                    self.errors.push(KumeoError::SemanticError(
+                        format!("Duplicate agent ID '{}' in subworkflow '{}'", id, subworkflow.name)
+                    ));
+                }
+            }
+        }
         
         Ok(())
     }

@@ -14,8 +14,8 @@ This document outlines the step-by-step approach to implementing the Kumeo platf
 
 ### 1.2 Compiler Foundation
 
-- [ ] Set up compiler project structure
-- [ ] Implement lexer and parser
+- [x] Set up compiler project structure
+- [x] Implement lexer and parser
 - [ ] Develop semantic validation
 - [ ] Create initial symbol table management
 - [ ] Define intermediate representation (IR)
