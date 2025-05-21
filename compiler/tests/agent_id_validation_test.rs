@@ -77,8 +77,11 @@ fn test_duplicate_agent_id_in_subworkflow_test() {
 #[test]
 fn test_unique_agent_ids_validation() {
     // Create a program with unique agent IDs (should pass validation)
+    // Also include source and target which are now required
     let input = r#"
     workflow ValidWorkflow {
+        source: NATS("input_topic")
+        target: NATS("output_topic")
         agents: [
             LLM(
                 id: "text_processor",
@@ -102,6 +105,10 @@ fn test_unique_agent_ids_validation() {
     // Analyze the program for semantic errors
     let mut analyzer = SemanticAnalyzer::new();
     let result = analyzer.analyze(&program);
+    
+    if result.is_err() {
+        eprintln!("Validation errors: {:?}", analyzer.get_errors());
+    }
     
     // Should NOT detect any errors
     assert!(result.is_ok(), "Should NOT have detected any errors in valid workflow");
