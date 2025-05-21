@@ -14,7 +14,7 @@ Welcome to the Kumeo documentation. This project is actively being developed, an
 
 ## What is Kumeo?
 
-Kumeo (from *kume*, meaning "together" in Mapudungun) is a domain-specific language (DSL) designed to define complex workflows where heterogeneous agents collaborate via events. It compiles to Rust for performance, uses NATS for event streaming, and deploys to Kubernetes for scalability.
+Kumeo (from *kume*, meaning "together" in Mapudungun) is a domain-specific language (DSL) designed to define complex workflows where heterogeneous agents collaborate via events. It employs a multi-language compilation approach, generating optimized code for each agent type (Rust for performance-critical components, Python for ML and Bayesian operations), uses NATS for event streaming, and deploys to Kubernetes for scalability.
 
 ## Project Overview
 
@@ -23,6 +23,8 @@ Kumeo aims to solve the challenge of connecting different AI and ML components i
 ### Key Features
 
 - **Declarative Workflows**: Define agent interactions as event-driven flows using a simple, readable syntax
+- **True NoOps Solution**: The language itself handles everything from code generation to deployment - just write your workflow and run it
+- **Multi-Language Code Generation**: Automatically selects the optimal language for each component (Rust for LLMs and basic operations, Python for ML and Bayesian networks)
 - **Agent Types**: Support for LLMs (Ollama/OpenAI), ML models (scikit-learn, ONNX), Bayesian networks, and human-in-the-loop
 - **Event Orchestration**: Built on NATS for real-time, distributed communication
 - **Kubernetes Native**: Auto-generates deployment manifests for scalable infrastructure

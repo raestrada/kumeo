@@ -32,7 +32,11 @@ This document outlines the step-by-step approach to implementing the Kumeo platf
 
 ### 2.1 Compiler Development
 
-- [ ] Implement code generation for simple workflows
+- [ ] Implement multi-language code generation
+  - [ ] Rust generation for LLM agents and basic operations
+  - [ ] Python generation for ML models and Bayesian networks
+  - [ ] Template system for code generation
+  - [ ] Inter-language communication layer
 - [ ] Add type checking and validation
 - [ ] Create Kubernetes manifest generator
 - [ ] Implement optimization passes

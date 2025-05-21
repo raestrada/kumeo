@@ -66,10 +66,39 @@ The compiler is built in Rust and performs:
 
 - **Lexical and Syntactic Analysis** - Parses .kumeo files into an Abstract Syntax Tree
 - **Semantic Validation** - Ensures workflow integrity and agent compatibility
-- **Code Generation** - Produces optimized Rust code for the runtime
+- **Multi-Language Code Generation** - Produces optimized code in the most appropriate language for each component
 - **Kubernetes Manifest Generation** - Creates deployment configurations
+- **Automated Deployment Process** - Handles the complete deployment lifecycle
 
 The compiler enforces type safety and correct agent interaction patterns, catching errors at compile-time rather than runtime.
+
+#### Multi-Language Code Generation
+
+Kumeo uses a multi-backstage approach to code generation, selecting the most appropriate language for each agent type:
+
+| Agent Type | Generated Language | Rationale |
+|------------|-------------------|------------|
+| LLM | Rust | Performance, native Ollama integration |
+| Basic Transformations | Rust | Performance, memory safety |
+| Routing & I/O | Rust | Low latency, NATS performance |
+| ML Models | Python | Ecosystem compatibility (scikit-learn, TensorFlow) |
+| Bayesian Networks | Python | Rich libraries (PyMC3, pomegranate) |
+| Custom Logic | User's choice | Flexibility for specific requirements |
+
+This approach enables Kumeo to leverage the strengths of each language:
+
+- **Rust** for performance-critical components and system infrastructure
+- **Python** for data science and machine learning capabilities
+- **Inter-language communication** via NATS for seamless integration
+
+#### Template-Based Generation
+
+To minimize errors in generated code, Kumeo employs a template-based approach:
+
+1. **Language-specific templates** for each agent type and function
+2. **Parameter substitution** with validation to prevent injection issues
+3. **Consistent interfaces** across languages to ensure compatibility
+4. **Generated tests** to verify correct operation
 
 ### 3. Runtime
 
@@ -162,6 +191,38 @@ Kumeo supports multiple deployment scenarios:
 - **Cloud** - Deployment to any cloud provider with Kubernetes support
 - **Hybrid** - Mix of cloud and on-premises components
 - **Edge** - Lightweight deployments for edge computing scenarios
+
+## NoOps Philosophy
+
+Kumeo embodies a true NoOps (No Operations) philosophy, where the platform handles all operational aspects automatically:
+
+### Complete Deployment Automation
+
+- **One-Command Deployment** - A single command takes workflows from definition to running in production
+- **Zero Configuration Required** - Sensible defaults are provided for all components
+- **Infrastructure as Code** - The workflow definition itself contains all necessary deployment information
+- **Self-Healing System** - The platform automatically handles failures and restarts
+
+### End-to-End Responsibility
+
+The Kumeo platform takes responsibility for the entire lifecycle:
+
+1. **Code Generation** - Creating optimized, language-specific implementations
+2. **Dependency Management** - Resolving and packaging all required libraries
+3. **Container Creation** - Building optimized containers for each component
+4. **Deployment** - Applying manifests to Kubernetes and verifying successful deployment
+5. **Monitoring** - Tracking system health and performance
+6. **Scaling** - Automatically adjusting resources based on workload
+7. **Updates** - Seamlessly deploying changes when workflows are modified
+
+### Developer Experience
+
+This NoOps approach provides a superior developer experience:
+
+- **Focus on Business Logic** - Developers only need to define what they want, not how to deploy it
+- **Immediate Feedback** - Fast deployment cycle allows rapid iteration
+- **Reduced Complexity** - No need to understand underlying infrastructure details
+- **Consistent Environments** - Development and production environments behave identically
 
 ## Future Architecture Directions
 
