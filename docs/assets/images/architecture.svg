@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="800" height="500" viewBox="0 0 800 500">
+  <style>
+    .box {
+      fill: #FFFFFF;
+      stroke: #00796B;
+      stroke-width: 2;
+      rx: 10;
+      ry: 10;
+    }
+    .arrow {
+      fill: none;
+      stroke: #6CB2EB;
+      stroke-width: 2;
+      marker-end: url(#arrowhead);
+      stroke-dasharray: none;
+    }
+    .component-label {
+      font-family: 'Inter', sans-serif;
+      font-size: 16px;
+      font-weight: bold;
+      fill: #00796B;
+      text-anchor: middle;
+      dominant-baseline: middle;
+    }
+    .component-desc {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      fill: #64748B;
+      text-anchor: middle;
+      dominant-baseline: middle;
+    }
+    .section-label {
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: bold;
+      fill: #28A745;
+      text-anchor: middle;
+      dominant-baseline: middle;
+    }
+    .flow-label {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      fill: #4DBCE9;
+      text-anchor: middle;
+      dominant-baseline: middle;
+    }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6CB2EB" />
+    </marker>
+  </defs>
+  
+  <!-- Background Gradient -->
+  <rect width="800" height="500" fill="#E9F7EF" opacity="0.5" rx="20" ry="20" />
+  
+  <!-- Title -->
+  <text x="400" y="35" font-family="'Inter', sans-serif" font-size="24" font-weight="bold" fill="#00796B" text-anchor="middle">Kumeo Architecture</text>
+  
+  <!-- DSL & Compiler Section -->
+  <rect x="100" y="90" width="600" height="120" fill="#E9F7EF" rx="15" ry="15" opacity="0.7" />
+  <text x="400" y="110" class="section-label">Development Environment</text>
+  
+  <!-- Kumeo DSL -->
+  <rect x="150" y="130" width="160" height="60" class="box" />
+  <text x="230" y="155" class="component-label">Kumeo DSL</text>
+  <text x="230" y="175" class="component-desc">(.kumeo files)</text>
+  
+  <!-- Compiler -->
+  <rect x="400" y="130" width="160" height="60" class="box" />
+  <text x="480" y="155" class="component-label">Compiler</text>
+  <text x="480" y="175" class="component-desc">(Rust)</text>
+  
+  <!-- DSL to Compiler arrow -->
+  <path d="M 310 160 L 390 160" class="arrow" />
+  <text x="350" y="150" class="flow-label">Parse &amp; Compile</text>
+  
+  <!-- Deployment Section -->
+  <rect x="100" y="230" width="600" height="120" fill="#E9F7EF" rx="15" ry="15" opacity="0.7" />
+  <text x="400" y="250" class="section-label">Deployment Layer</text>
+  
+  <!-- Code + Manifests -->
+  <rect x="150" y="270" width="160" height="60" class="box" />
+  <text x="230" y="290" class="component-label">Generated Output</text>
+  <text x="230" y="310" class="component-desc">(Rust + K8s Manifests)</text>
+  
+  <!-- Kubernetes -->
+  <rect x="400" y="270" width="160" height="60" class="box" />
+  <text x="480" y="290" class="component-label">Kubernetes</text>
+  <text x="480" y="310" class="component-desc">(Deployment)</text>
+  
+  <!-- Compiler to Code arrow -->
+  <path d="M 480 190 L 480 220 L 230 220 L 230 270" class="arrow" />
+  <text x="350" y="210" class="flow-label">Generate</text>
+  
+  <!-- Code to Kubernetes arrow -->
+  <path d="M 310 300 L 390 300" class="arrow" />
+  <text x="350" y="320" class="flow-label">Deploy</text>
+  
+  <!-- Runtime Section -->
+  <rect x="100" y="370" width="600" height="120" fill="#E9F7EF" rx="15" ry="15" opacity="0.7" />
+  <text x="400" y="390" class="section-label">Runtime Environment</text>
+  
+  <!-- Kumeo Runtime -->
+  <rect x="590" y="410" width="160" height="60" class="box" />
+  <text x="670" y="430" class="component-label">Kumeo Runtime</text>
+  <text x="670" y="450" class="component-desc">(Rust)</text>
+  
+  <!-- Agent Interactions -->
+  <rect x="370" y="410" width="160" height="60" class="box" />
+  <text x="450" y="430" class="component-label">Agent Interactions</text>
+  <text x="450" y="450" class="component-desc">(Multi-agent Workflow)</text>
+  
+  <!-- NATS -->
+  <rect x="150" y="410" width="160" height="60" class="box" />
+  <text x="230" y="430" class="component-label">NATS</text>
+  <text x="230" y="450" class="component-desc">(Event Streaming)</text>
+  
+  <!-- Kubernetes to Runtime arrow -->
+  <path d="M 480 330 L 480 360 L 670 360 L 670 410" class="arrow" />
+  <text x="580" y="380" class="flow-label">Execute</text>
+  
+  <!-- Runtime to Agents arrow -->
+  <path d="M 590 440 L 540 440" class="arrow" />
+  <text x="565" y="430" class="flow-label">Manage</text>
+  
+  <!-- Agents to NATS arrow -->
+  <path d="M 370 440 L 320 440" class="arrow" />
+  <text x="345" y="430" class="flow-label">Communicate</text>
+  
+  <!-- Monitoring Dashboard -->
+  <path d="M 230 410 C 230 380 100 380 100 330 L 100 270 C 100 230 50 230 50 180 L 50 150" class="arrow" stroke-dasharray="5,5" />
+  <rect x="30" y="90" width="40" height="160" rx="5" ry="5" fill="#4DBCE9" opacity="0.2" />
+  <text x="50" y="170" class="component-label" transform="rotate(270, 50, 170)">Monitoring Dashboard</text>
+</svg>
