@@ -1,14 +1,15 @@
 use std::str::FromStr;
 use std::collections::HashMap;
-use crate::ast::{Program, Workflow, Source, Target, Context, Agent, AgentType, Argument, Value};
+use crate::ast::{Program, Workflow, Subworkflow, Source, Target, Context, Agent, AgentType, Argument, Value};
 
 // Define grammar that directly parses strings, not using our Logos lexer
 grammar;
 
 pub Program: Program = {
-    <workflows:Workflow*> => {
+    <workflows:Workflow*> <subworkflows:Subworkflow*> => {
         let mut program = Program::new();
         program.workflows = workflows;
+        program.subworkflows = subworkflows;
         program
     }
 };
@@ -40,7 +41,17 @@ TargetDef: Target = {
 };
 
 AgentsDef: Vec<Agent> = {
-    "agents" ":" "[" <agents:Agent*> "]" => agents
+    "agents" ":" "[" <agents:AgentList> "]" => agents
+};
+
+// List of agents separated by commas
+AgentList: Vec<Agent> = {
+    <head:Agent> <tail:("," Agent)*> => {
+        let mut agents = vec![head];
+        agents.extend(tail.into_iter().map(|(_, agent)| agent));
+        agents
+    },
+    => Vec::new()
 };
 
 SourceValue: Source = {
@@ -105,6 +116,42 @@ AgentType: AgentType = {
     "MLModel" => AgentType::MLModel,
     "BayesianNetwork" => AgentType::BayesianNetwork,
     <name:Identifier> => AgentType::Custom(name)
+};
+
+// Add support for Subworkflows
+Subworkflow: Subworkflow = {
+    "subworkflow" <name:Identifier> "{" 
+        <input_vals:SubworkflowInputDef?>
+        <output_vals:SubworkflowOutputDef?>
+        <context:ContextDef?>
+        <agents:AgentsDef> 
+    "}" => Subworkflow {
+        name: name,
+        input: input_vals,
+        output: output_vals,
+        context: context,
+        agents: agents,
+    }
+};
+
+// Input definition for subworkflows
+SubworkflowInputDef: Vec<String> = {
+    "input" ":" "[" <inputs:StringList> "]" => inputs
+};
+
+// Output definition for subworkflows
+SubworkflowOutputDef: Vec<String> = {
+    "output" ":" "[" <outputs:StringList> "]" => outputs
+};
+
+// List of strings for input/output definitions
+StringList: Vec<String> = {
+    <head:StringLiteral> <tail:("," StringLiteral)*> => {
+        let mut strings = vec![head];
+        strings.extend(tail.into_iter().map(|(_, s)| s));
+        strings
+    },
+    => Vec::new()
 };
 
 // Add support for Context
