@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use crate::ast::{Agent, AgentType, Workflow};
+use crate::ast::{Agent, Workflow};
 use crate::codegen::template_manager::{TemplateManager, Result, TemplateError};
 
 pub struct PythonGenerator {

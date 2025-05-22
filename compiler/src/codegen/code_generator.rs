@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use crate::ast::{Agent, AgentType, Program, Workflow, Subworkflow};
-use crate::codegen::template_manager::{Result, TemplateError};
+use crate::codegen::template_manager::Result;
 use crate::codegen::rust_generator::RustGenerator;
 use crate::codegen::python_generator::PythonGenerator;
 use crate::codegen::kubernetes_generator::KubernetesGenerator;

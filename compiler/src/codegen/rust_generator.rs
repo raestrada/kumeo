@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use crate::ast::{Agent, AgentType, Workflow, Source, Target};
+use crate::ast::{Agent, Workflow};
 use crate::codegen::template_manager::{TemplateManager, Result, TemplateError};
 
 pub struct RustGenerator {
@@ -110,32 +110,32 @@ impl RustGenerator {
     }
     
     // Similar methods for other agent types
-    pub fn generate_aggregator_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
+    pub fn generate_aggregator_agent(&mut self, _agent: &Agent, _workflow: &Workflow) -> Result<PathBuf> {
         // Implementation similar to other agent generators
         Ok(PathBuf::new()) // Placeholder
     }
     
-    pub fn generate_rule_engine_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
+    pub fn generate_rule_engine_agent(&mut self, _agent: &Agent, _workflow: &Workflow) -> Result<PathBuf> {
         // Implementation similar to other agent generators
         Ok(PathBuf::new()) // Placeholder
     }
     
-    pub fn generate_data_normalizer_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
+    pub fn generate_data_normalizer_agent(&mut self, _agent: &Agent, _workflow: &Workflow) -> Result<PathBuf> {
         // Implementation similar to other agent generators
         Ok(PathBuf::new()) // Placeholder
     }
     
-    pub fn generate_missing_value_handler_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
+    pub fn generate_missing_value_handler_agent(&mut self, _agent: &Agent, _workflow: &Workflow) -> Result<PathBuf> {
         // Implementation similar to other agent generators
         Ok(PathBuf::new()) // Placeholder
     }
     
-    pub fn generate_human_in_loop_backend(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
+    pub fn generate_human_in_loop_backend(&mut self, _agent: &Agent, _workflow: &Workflow) -> Result<PathBuf> {
         // Implementation similar to other agent generators
         Ok(PathBuf::new()) // Placeholder
     }
     
-    pub fn generate_custom_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
+    pub fn generate_custom_agent(&mut self, _agent: &Agent, _workflow: &Workflow) -> Result<PathBuf> {
         // Implementation similar to other agent generators
         Ok(PathBuf::new()) // Placeholder
     }

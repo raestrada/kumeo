@@ -51,7 +51,7 @@ impl KubernetesGenerator {
     }
     
     /// Generate a Kubernetes namespace for the program
-    fn generate_namespace(&mut self, program: &Program) -> Result<PathBuf> {
+    fn generate_namespace(&mut self, _program: &Program) -> Result<PathBuf> {
         let mut params = HashMap::new();
         let namespace = "kumeo-system"; // Could be derived from program name or configuration
         params.insert("namespace".to_string(), namespace.to_string());
@@ -101,9 +101,8 @@ impl KubernetesGenerator {
         }
         
         // Generate ConfigMaps for workflow context if present
-        if let Some(context) = &workflow.context {
-            self.generate_context_configmaps(context, workflow, &workflow_dir)?;
-        }
+        // Generate ConfigMaps for workflow context
+        self.generate_context_configmaps(&workflow.context, workflow, &workflow_dir)?;
         
         // Generate a kustomization file for the workflow
         self.generate_workflow_kustomization(workflow, &workflow_dir)?;
@@ -136,19 +135,18 @@ impl KubernetesGenerator {
             self.generate_agent_manifests(agent, &temp_workflow, &subworkflow_dir, index)?;
         }
         
-        // Generate ConfigMaps for subworkflow context if present
-        if let Some(context) = &subworkflow.context {
-            self.generate_context_configmaps(context, &Workflow {
-                name: subworkflow.name.clone(),
-                source: None,
-                target: None,
-                context: subworkflow.context.clone(),
-                preprocessors: None,
-                agents: vec![],
-                monitor: None,
-                deployment: None,
-            }, &subworkflow_dir)?;
-        }
+        // Generate ConfigMaps for subworkflow context
+        let temp_workflow = Workflow {
+            name: subworkflow.name.clone(),
+            source: None,
+            target: None,
+            context: subworkflow.context.clone(),
+            preprocessors: None,
+            agents: vec![],
+            monitor: None,
+            deployment: None,
+        };
+        self.generate_context_configmaps(&subworkflow.context, &temp_workflow, &subworkflow_dir)?;
         
         // Generate a kustomization file for the subworkflow
         self.generate_subworkflow_kustomization(subworkflow, &subworkflow_dir)?;
@@ -242,14 +240,17 @@ impl KubernetesGenerator {
     }
     
     /// Generate ConfigMaps for workflow context
-    fn generate_context_configmaps(&mut self, context: &Vec<crate::ast::ContextItem>, workflow: &Workflow, output_dir: &Path) -> Result<PathBuf> {
+    fn generate_context_configmaps(&mut self, context: &Option<crate::ast::Context>, workflow: &Workflow, output_dir: &Path) -> Result<PathBuf> {
         // Create a configmap for the context items
         let mut params = HashMap::new();
         params.insert("workflow_name".to_string(), workflow.name.clone());
         
-        // Add context items as JSON
-        let context_json = serde_json::to_string_pretty(&context)
-            .unwrap_or_else(|_| "[]".to_string());
+        // Add context as JSON if it exists
+        let context_json = match context {
+            Some(ctx) => serde_json::to_string_pretty(ctx)
+                .unwrap_or_else(|_| "{}".to_string()),
+            None => "{}".to_string()
+        };
         params.insert("context_json".to_string(), context_json);
         
         // Render the context configmap template
@@ -326,7 +327,7 @@ impl KubernetesGenerator {
     }
     
     /// Generate the root kustomization file for the entire program
-    fn generate_kustomization(&mut self, program: &Program) -> Result<PathBuf> {
+    fn generate_kustomization(&mut self, _program: &Program) -> Result<PathBuf> {
         let mut params = HashMap::new();
         
         // Get a list of all directories (workflows and subworkflows)
