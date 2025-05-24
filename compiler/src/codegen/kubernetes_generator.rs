@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use crate::ast::{Program, Workflow, Subworkflow, Agent};
 use crate::codegen::template_manager::{TemplateManager, Result, TemplateError};
-use tracing::{debug, info, warn, error, trace, instrument};
+use tracing::{debug, info, warn, error, instrument};
 
 pub struct KubernetesGenerator {
     template_manager: TemplateManager,

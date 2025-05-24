@@ -3,11 +3,12 @@ use std::path::PathBuf;
 use std::env;
 
 // Importar del crate principal
-use kumeo_compiler::{LogFormat, init, info, debug, error, warn};
+use kumeo_compiler::{LogFormat, init, info, debug, error};
 
 // CLI struct simplified for testing
 struct Cli {
     input: PathBuf,
+    #[allow(dead_code)]
     output: Option<PathBuf>,
     debug: bool,
 }

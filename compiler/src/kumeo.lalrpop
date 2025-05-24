@@ -1,9 +1,76 @@
 use std::str::FromStr;
 use std::collections::HashMap;
-use crate::ast::{Program, Workflow, Subworkflow, Source, Target, Context, Agent, AgentType, Argument, Value};
+use crate::ast::{Program, Workflow, Subworkflow, Integration, Source, Target, Context, Agent, AgentType, Argument, Value, Mapping, PathExpr};
+use crate::lexer::Token;
 
-// Define grammar that directly parses strings, not using our Logos lexer
-grammar;
+// Use external lexer (our Logos-based lexer)
+grammar<'input>(input: &'input str);
+
+extern {
+    type Location = usize;
+    type Error = String;
+    
+    enum Token<'input> {
+        // Keywords
+        "workflow" => Token::Workflow,
+        "subworkflow" => Token::Subworkflow,
+        "integration" => Token::Integration,
+        "source" => Token::Source,
+        "target" => Token::Target,
+        "context" => Token::Context,
+        "agents" => Token::Agents,
+        "input" => Token::Input,
+        "output" => Token::Output,
+        "mapping" => Token::Mapping,
+        "use" => Token::Use,
+        "config" => Token::Config,
+        "preprocessors" => Token::Preprocessors,
+        "monitor" => Token::Monitor,
+        "deployment" => Token::Deployment,
+        
+        // Agent types
+        "LLM" => Token::LLM,
+        "MLModel" => Token::MLModel,
+        "BayesianNetwork" => Token::BayesianNetwork,
+        "DecisionMatrix" => Token::DecisionMatrix,
+        "Router" => Token::Router,
+        "Aggregator" => Token::Aggregator,
+        "RuleEngine" => Token::RuleEngine,
+        "DataNormalizer" => Token::DataNormalizer,
+        "MissingValueHandler" => Token::MissingValueHandler,
+        "HumanInLoop" => Token::HumanInLoop,
+        "Custom" => Token::Custom,
+        
+        // Context types
+        "KnowledgeBase" => Token::KnowledgeBase,
+        "Database" => Token::Database,
+        
+        // Source and target types
+        "NATS" => Token::NATS,
+        "HTTP" => Token::HTTP,
+        "FILE" => Token::FILE,
+        
+        // Delimiters and operators
+        "{" => Token::LeftBrace,
+        "}" => Token::RightBrace,
+        "[" => Token::LeftBracket,
+        "]" => Token::RightBracket,
+        "(" => Token::LeftParen,
+        ")" => Token::RightParen,
+        "," => Token::Comma,
+        ":" => Token::Colon,
+        "." => Token::Dot,
+        "=" => Token::Assign,
+        
+        // Literals with values
+        "identifier" => Token::Identifier(<&'input str>),
+        "string" => Token::StringLiteral(<&'input str>),
+        "number" => Token::NumberLiteral(<&'input str>),
+        "true" => Token::True,
+        "false" => Token::False,
+        "null" => Token::Null,
+    }
+}
 
 pub Program: Program = {
     <workflows:Workflow*> <subworkflows:Subworkflow*> => {
@@ -57,10 +124,14 @@ AgentList: Vec<Agent> = {
 };
 
 SourceValue: Source = {
+    // Específicos para los tipos de fuente soportados
+    "NATS" "(" <topic:StringLiteral> ")" => Source::NATS(topic, None),
+    "HTTP" "(" <topic:StringLiteral> ")" => Source::HTTP(topic, None),
+    "FILE" "(" <topic:StringLiteral> ")" => Source::File(topic, None),
+    
+    // Para tipos personalizados
     <name:Identifier> "(" <topic:StringLiteral> ")" => 
         match name.as_str() {
-            "NATS" => Source::NATS(topic, None),
-            "HTTP" => Source::HTTP(topic, None),
             "Kafka" => Source::Kafka(topic, None),
             "MQTT" => Source::MQTT(topic, None),
             _ => Source::Custom(name, vec![Value::String(topic)])
@@ -68,10 +139,14 @@ SourceValue: Source = {
 };
 
 TargetValue: Target = {
+    // Específicos para los tipos de destino soportados
+    "NATS" "(" <topic:StringLiteral> ")" => Target::NATS(topic, None),
+    "HTTP" "(" <topic:StringLiteral> ")" => Target::HTTP(topic, None),
+    "FILE" "(" <topic:StringLiteral> ")" => Target::File(topic, None),
+    
+    // Para tipos personalizados
     <name:Identifier> "(" <topic:StringLiteral> ")" => 
         match name.as_str() {
-            "NATS" => Target::NATS(topic, None),
-            "HTTP" => Target::HTTP(topic, None),
             "Kafka" => Target::Kafka(topic, None),
             "MQTT" => Target::MQTT(topic, None),
             _ => Target::Custom(name, vec![Value::String(topic)])
@@ -233,14 +308,15 @@ BooleanLiteral: bool = {
     "false" => false
 };
 
-// Number literal
+// For literals, we use the lexer token types directly
 NumberLiteral: f64 = {
-    <n:r"-?[0-9]+(\.[0-9]+)?([eE][\+\-]?[0-9]+)?"> => n.parse().unwrap()
+    <n:"number"> => n.parse::<f64>().unwrap_or(0.0)
 };
 
-Identifier: String = <s:r"[a-zA-Z_][a-zA-Z0-9_]*"> => s.to_string();
+Identifier: String = {
+    <id:"identifier"> => id.to_string()
+};
 
-StringLiteral: String = <s:r#""([^"\\]|\\.)*""#> => {
-    let content = &s[1..s.len()-1]; // Remove quotes
-    content.to_string()
+StringLiteral: String = {
+    <s:"string"> => s.to_string()
 };

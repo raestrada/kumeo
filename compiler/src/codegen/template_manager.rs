@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use crate::{debug, info, warn, error, trace};
+use crate::{debug, info, error, trace};
 
 #[derive(Error, Debug)]
 pub enum TemplateError {
@@ -49,24 +49,34 @@ impl TemplateManager {
         debug!(template = %relative_path, "Loading template");
         
         if !self.templates.contains_key(relative_path) {
+            // Intentar primero con la ruta original
             let full_path = self.template_root.join(relative_path);
-            trace!(path = %full_path.display(), "Full template path");
+            trace!(path = %full_path.display(), "Trying original template path");
             
-            if !full_path.exists() {
-                error!(path = %full_path.display(), "Template not found");
+            // Si no existe, intentar con extensión .tmpl
+            let with_tmpl_extension = format!("{}.tmpl", relative_path);
+            let full_path_with_tmpl = self.template_root.join(&with_tmpl_extension);
+            
+            let (final_path, final_key) = if full_path.exists() {
+                (full_path, relative_path.to_string())
+            } else if full_path_with_tmpl.exists() {
+                trace!(path = %full_path_with_tmpl.display(), "Using template with .tmpl extension");
+                (full_path_with_tmpl, relative_path.to_string())
+            } else {
+                error!(path = %full_path.display(), alt_path = %full_path_with_tmpl.display(), "Template not found");
                 return Err(TemplateError::NotFound(format!(
                     "Template not found: {}",
                     full_path.display()
                 )));
-            }
+            };
             
-            match fs::read_to_string(&full_path) {
+            match fs::read_to_string(&final_path) {
                 Ok(template_content) => {
-                    debug!(template = %relative_path, size = template_content.len(), "Template loaded successfully");
-                    self.templates.insert(relative_path.to_string(), template_content);
+                    debug!(template = %final_key, size = template_content.len(), "Template loaded successfully");
+                    self.templates.insert(final_key, template_content);
                 },
                 Err(e) => {
-                    error!(error = %e, path = %full_path.display(), "Failed to read template file");
+                    error!(error = %e, path = %final_path.display(), "Failed to read template file");
                     return Err(TemplateError::Io(e));
                 }
             }
