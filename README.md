@@ -143,6 +143,52 @@ docker build -t kumeo-compiler .
 docker run -v $(pwd)/examples:/examples -v $(pwd)/dist:/dist kumeo-compiler --input /examples/simple.kumeo --output /dist/
 ```
 
+## 📊 Test Coverage
+
+The project includes automated tests to ensure code quality. To generate a test coverage report:
+
+### Prerequisites
+
+```bash
+# Install cargo-tarpaulin
+cargo install cargo-tarpaulin
+
+# Install development dependencies
+sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+```
+
+### Generate Coverage Report
+
+```bash
+# Navigate to the compiler directory
+cd compiler
+
+# Run tests with coverage
+cargo tarpaulin --out Html --output-dir ./target/tarpaulin
+```
+
+The HTML report will be generated at `compiler/target/tarpaulin/tarpaulin-report.html`.
+
+### Current Coverage
+
+- **Total Coverage**: 53.62%
+- **Lines Covered**: 496 out of 925 lines
+
+### Areas Needing Improvement
+
+1. Files with 0% coverage:
+   - `src/main.rs`
+   - `src/codegen/code_generator.rs`
+   - `src/error.rs`
+   - `src/logging.rs`
+
+2. Files with low coverage (<50%):
+   - `src/lexer.rs` (20.44%)
+   - `src/parser.rs` (36.67%)
+
+To improve coverage, consider adding unit tests for these areas.
+
+
 ---
 
 ## 🤝 Contributing  
