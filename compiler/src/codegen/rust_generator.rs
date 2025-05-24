@@ -70,13 +70,22 @@ impl RustGenerator {
         debug!("Rendering LLM agent template");
         let template_content = self.template_manager.render_template("agents/llm.rs.tmpl", &params)?;
         
-        // Write the generated code to a file
+        // Create the output file path
         let output_file = self.output_dir
             .join("src")
             .join("agents")
             .join(format!("{}.rs", agent_id.to_lowercase()));
-        debug!(path = %output_file.display(), "Writing generated LLM agent code");
+            
+        debug!(path = ?output_file.display(), "Creating directory structure for LLM agent");
+        match std::fs::create_dir_all(output_file.parent().unwrap()) {
+            Ok(_) => {},
+            Err(e) => {
+                error!(error = %e, path = ?output_file.parent().unwrap().display(), "Failed to create directory structure");
+                return Err(TemplateError::Io(e));
+            }
+        }
         
+        debug!(path = %output_file.display(), "Writing generated LLM agent code");
         match std::fs::write(&output_file, &template_content) {
             Ok(_) => {
                 info!(agent_id = %agent_id, path = %output_file.display(), "Successfully generated LLM agent code");
