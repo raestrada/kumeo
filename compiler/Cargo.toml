@@ -17,6 +17,15 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"    # JSON serialization
 tempfile = "3.8.0"    # Temporary files for testing
 
+# Logging and tracing
+tracing = "0.1"       # Tracing library with structured logging
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] } # Subscriber implementation
+tracing-appender = "0.2"    # File and non-blocking appenders
+tracing-log = "0.1"        # Compatibility with log crate
+tracing-error = "0.2"      # Error handling integration
+tracing-tree = "0.2"       # Tree-like display for spans
+ansi_term = "0.12"         # Terminal colors
+
 # CLI dependencies (commented out for now to simplify testing)
 # clap = { version = "4.3", features = ["derive"] } # CLI argument parsing
 

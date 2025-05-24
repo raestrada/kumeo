@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use crate::ast::{Agent, Workflow};
 use crate::codegen::template_manager::{TemplateManager, Result, TemplateError};
+use tracing::{debug, info, warn, error, trace, instrument};
 
 pub struct RustGenerator {
     template_manager: TemplateManager,
@@ -10,13 +11,17 @@ pub struct RustGenerator {
 
 impl RustGenerator {
     pub fn new<P: AsRef<Path>>(template_root: P, output_dir: P) -> Result<Self> {
+        debug!(template_path = ?template_root.as_ref().display(), "Initializing Rust generator");
         let template_manager = TemplateManager::new(template_root.as_ref().join("rust"))?;
         let output_dir = output_dir.as_ref().join("rust");
         
         // Create output directory if it doesn't exist
         if !output_dir.exists() {
+            debug!(path = ?output_dir.display(), "Creating Rust output directory");
             std::fs::create_dir_all(&output_dir)?;
         }
+        
+        info!("Rust generator initialized");
         
         Ok(Self {
             template_manager,
@@ -25,8 +30,11 @@ impl RustGenerator {
     }
     
     /// Generate Rust code for an LLM agent
+    #[instrument(skip(self, agent, workflow), fields(agent_id = ?agent.id, workflow_name = %workflow.name))]
     pub fn generate_llm_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
+        info!("Generating Rust code for LLM agent");
         let agent_id = agent.id.as_ref().ok_or_else(|| {
+            error!("Agent is missing ID");
             TemplateError::Rendering("Agent is missing ID".to_string())
         })?;
         
@@ -37,7 +45,11 @@ impl RustGenerator {
         
         // Find the engine parameter
         let engine = self.get_agent_param(agent, "engine")
-            .unwrap_or_else(|| "ollama/llama3".to_string());
+            .unwrap_or_else(|| {
+                debug!("No engine specified, using default: ollama/llama3");
+                "ollama/llama3".to_string()
+            });
+        debug!(engine = %engine, "Using LLM engine");
         params.insert("engine".to_string(), engine);
         
         // Find the prompt parameter
@@ -54,24 +66,35 @@ impl RustGenerator {
             params.insert("output_topic".to_string(), self.extract_topic(target));
         }
         
-        // Render the template
-        let code = self.template_manager.render_template("agents/llm.rs.tmpl", &params)?;
+        // Render the LLM agent template
+        debug!("Rendering LLM agent template");
+        let template_content = self.template_manager.render_template("agents/llm.rs.tmpl", &params)?;
         
-        // Create the output file
+        // Write the generated code to a file
         let output_file = self.output_dir
             .join("src")
             .join("agents")
             .join(format!("{}.rs", agent_id.to_lowercase()));
+        debug!(path = %output_file.display(), "Writing generated LLM agent code");
         
-        std::fs::create_dir_all(output_file.parent().unwrap())?;
-        std::fs::write(&output_file, code)?;
-        
-        Ok(output_file)
+        match std::fs::write(&output_file, &template_content) {
+            Ok(_) => {
+                info!(agent_id = %agent_id, path = %output_file.display(), "Successfully generated LLM agent code");
+                Ok(output_file)
+            },
+            Err(e) => {
+                error!(error = %e, path = %output_file.display(), "Failed to write LLM agent code");
+                Err(TemplateError::Io(e))
+            }
+        }
     }
     
     /// Generate Rust code for a router agent
+    #[instrument(skip(self, agent, workflow), fields(agent_id = ?agent.id, workflow_name = %workflow.name))]
     pub fn generate_router_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
+        info!("Generating Rust code for Router agent");
         let agent_id = agent.id.as_ref().ok_or_else(|| {
+            error!("Agent is missing ID");
             TemplateError::Rendering("Agent is missing ID".to_string())
         })?;
         
@@ -95,6 +118,7 @@ impl RustGenerator {
         }
         
         // Render the template
+        debug!("Rendering Router agent template");
         let code = self.template_manager.render_template("agents/router.rs.tmpl", &params)?;
         
         // Create the output file
@@ -103,10 +127,26 @@ impl RustGenerator {
             .join("agents")
             .join(format!("{}.rs", agent_id.to_lowercase()));
         
-        std::fs::create_dir_all(output_file.parent().unwrap())?;
-        std::fs::write(&output_file, code)?;
+        debug!(path = ?output_file.display(), "Creating directory structure for Router agent");
+        match std::fs::create_dir_all(output_file.parent().unwrap()) {
+            Ok(_) => {},
+            Err(e) => {
+                error!(error = %e, path = ?output_file.parent().unwrap().display(), "Failed to create directory structure");
+                return Err(TemplateError::Io(e));
+            }
+        }
         
-        Ok(output_file)
+        debug!(path = ?output_file.display(), "Writing generated Router agent code");
+        match std::fs::write(&output_file, &code) {
+            Ok(_) => {
+                info!(agent_id = %agent_id, path = %output_file.display(), "Successfully generated Router agent code");
+                Ok(output_file)
+            },
+            Err(e) => {
+                error!(error = %e, path = %output_file.display(), "Failed to write Router agent code");
+                Err(TemplateError::Io(e))
+            }
+        }
     }
     
     // Similar methods for other agent types
@@ -141,26 +181,41 @@ impl RustGenerator {
     }
     
     /// Helper to get a parameter from an agent's config
+    #[instrument(skip(self, agent), fields(param_name = %param_name, agent_id = ?agent.id))]
     fn get_agent_param(&self, agent: &Agent, param_name: &str) -> Option<String> {
+        trace!("Retrieving parameter from agent config");
         for arg in &agent.config {
             match arg {
                 crate::ast::Argument::Named(name, value) => {
                     if name == param_name {
                         match value {
-                            crate::ast::Value::String(s) => return Some(s.clone()),
-                            _ => return Some(format!("{:?}", value)),
+                            crate::ast::Value::String(s) => {
+                                trace!(param = %param_name, value = %s, "Found string parameter in agent config");
+                                return Some(s.clone());
+                            },
+                            _ => {
+                                let val_str = format!("{:?}", value);
+                                trace!(param = %param_name, value = %val_str, "Found non-string parameter in agent config");
+                                return Some(val_str);
+                            }
                         }
                     }
                 },
                 _ => continue,
             }
         }
+        trace!(param = %param_name, "Parameter not found in agent config");
         None
     }
     
     /// Extract topic name from a source or target
+    #[instrument(skip(self, source_or_target))]
     fn extract_topic(&self, source_or_target: &impl std::fmt::Debug) -> String {
+        trace!("Extracting topic name from source or target");
         // This is a simplified version - actual implementation would need to match on the enum variants
-        format!("{:?}", source_or_target).replace("NATS(", "").replace(")", "").replace("\"", "")
+        let raw_repr = format!("{:?}", source_or_target);
+        let topic = raw_repr.replace("NATS(", "").replace(")", "").replace("\"", "");
+        trace!(raw = %raw_repr, topic = %topic, "Extracted topic name");
+        topic
     }
 }

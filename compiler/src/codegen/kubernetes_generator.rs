@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use crate::ast::{Program, Workflow, Subworkflow, Agent};
 use crate::codegen::template_manager::{TemplateManager, Result, TemplateError};
+use tracing::{debug, info, warn, error, trace, instrument};
 
 pub struct KubernetesGenerator {
     template_manager: TemplateManager,
@@ -10,13 +11,17 @@ pub struct KubernetesGenerator {
 
 impl KubernetesGenerator {
     pub fn new<P: AsRef<Path>>(template_root: P, output_dir: P) -> Result<Self> {
+        debug!(template_path = ?template_root.as_ref().display(), "Initializing Kubernetes generator");
         let template_manager = TemplateManager::new(template_root.as_ref().join("kubernetes"))?;
         let output_dir = output_dir.as_ref().join("kubernetes");
         
         // Create output directory if it doesn't exist
         if !output_dir.exists() {
+            debug!(path = ?output_dir.display(), "Creating Kubernetes output directory");
             std::fs::create_dir_all(&output_dir)?;
         }
+        
+        info!("Kubernetes generator initialized");
         
         Ok(Self {
             template_manager,
@@ -26,7 +31,8 @@ impl KubernetesGenerator {
     
     /// Generate Kubernetes manifests for the entire program
     pub fn generate_kubernetes_manifests(&mut self, program: &Program) -> Result<PathBuf> {
-        println!("Generating Kubernetes manifests...");
+        info!("Generating Kubernetes manifests for program");
+        debug!(workflows_count = program.workflows.len(), "Program details");
         
         // Generate a namespace for the program
         self.generate_namespace(program)?;
@@ -51,33 +57,52 @@ impl KubernetesGenerator {
     }
     
     /// Generate a Kubernetes namespace for the program
-    fn generate_namespace(&mut self, _program: &Program) -> Result<PathBuf> {
+    #[instrument(skip(self, _program))]
+    pub fn generate_namespace(&mut self, _program: &Program) -> Result<PathBuf> {
+        info!("Generating Kubernetes namespace manifest");
         let mut params = HashMap::new();
-        let namespace = "kumeo-system"; // Could be derived from program name or configuration
-        params.insert("namespace".to_string(), namespace.to_string());
+        params.insert("namespace".to_string(), "kumeo".to_string());
         
-        // Render the template
-        let manifest = self.template_manager.render_template("namespace.yaml.tmpl", &params)?;
+        debug!("Rendering namespace template");
+        let template_content = self.template_manager.render_template("namespace.yaml", &params)?;
         
-        // Write the manifest to a file
         let output_file = self.output_dir.join("namespace.yaml");
-        std::fs::write(&output_file, manifest)?;
+        debug!(path = ?output_file.display(), "Writing namespace manifest");
         
-        Ok(output_file)
+        match std::fs::write(&output_file, &template_content) {
+            Ok(_) => {
+                info!(path = %output_file.display(), "Successfully generated namespace manifest");
+                Ok(output_file)
+            },
+            Err(e) => {
+                error!(error = %e, path = %output_file.display(), "Failed to write namespace manifest");
+                Err(TemplateError::Io(e))
+            }
+        }
     }
     
     /// Generate NATS infrastructure manifests
-    fn generate_nats_infrastructure(&mut self) -> Result<PathBuf> {
-        let params = HashMap::new(); // No specific params for NATS infrastructure
+    #[instrument(skip(self))]
+    pub fn generate_nats_infrastructure(&mut self) -> Result<PathBuf> {
+        info!("Generating NATS infrastructure manifests");
+        let params = HashMap::new();
         
-        // Render the template
-        let manifest = self.template_manager.render_template("nats.yaml.tmpl", &params)?;
+        debug!("Rendering NATS infrastructure template");
+        let template_content = self.template_manager.render_template("nats.yaml", &params)?;
         
-        // Write the manifest to a file
         let output_file = self.output_dir.join("nats.yaml");
-        std::fs::write(&output_file, manifest)?;
+        debug!(path = ?output_file.display(), "Writing NATS infrastructure manifest");
         
-        Ok(output_file)
+        match std::fs::write(&output_file, &template_content) {
+            Ok(_) => {
+                info!(path = %output_file.display(), "Successfully generated NATS infrastructure manifest");
+                Ok(output_file)
+            },
+            Err(e) => {
+                error!(error = %e, path = %output_file.display(), "Failed to write NATS infrastructure manifest");
+                Err(TemplateError::Io(e))
+            }
+        }
     }
     
     /// Generate Kubernetes manifests for a workflow
