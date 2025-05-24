@@ -14,8 +14,13 @@ fn test_python_generator_initialization() {
     fs::create_dir_all(&template_root.join("python/agents")).unwrap();
     
     // Create a simple template for testing
-    let template_content = "# Template for {{agent_id}} agent\nclass {{agent_id}}Agent:\n    # Configuration\n    pass";
-    fs::write(template_root.join("python/agents/ml_model.py.tmpl"), template_content).unwrap();
+    let template_content = r#"
+        # Template for {{agent_id}} agent
+        class {{agent_id}}Agent:
+            # Configuration
+            pass
+    "#;
+    fs::write(template_root.join("python/agents/ml_model.py.tmpl"), template_content.trim()).unwrap();
     
     // Initialize the Python generator
     let python_generator = PythonGenerator::new(&template_root, &output_dir);
@@ -33,8 +38,15 @@ fn test_ml_model_agent_generation() {
     fs::create_dir_all(&template_root.join("python/agents")).unwrap();
     
     // Create a simple template for testing
-    let template_content = "# Template for {{agent_id}} agent\nclass {{agent_id}}Agent:\n    model_path = \"{{model_path}}\"\n    # Configuration\n\n# Values: model_path={{model_path}}";
-    fs::write(template_root.join("python/agents/ml_model.py.tmpl"), template_content).unwrap();
+    let template_content = r#"
+        # Template for {{agent_id}} agent
+        class {{agent_id}}Agent:
+            model_path = "{{model_path}}"
+            # Configuration
+
+        # Values: model_path={{model_path}}
+    "#;
+    fs::write(template_root.join("python/agents/ml_model.py.tmpl"), template_content.trim()).unwrap();
     
     // Initialize the Python generator
     let mut python_generator = PythonGenerator::new(&template_root, &output_dir).unwrap();
@@ -86,8 +98,15 @@ fn test_bayesian_network_agent_generation() {
     fs::create_dir_all(&template_root.join("python/agents")).unwrap();
     
     // Create a simple template for testing
-    let template_content = "# Template for {{agent_id}} agent\nclass {{agent_id}}Agent:\n    network_path = \"{{network_path}}\"\n    # Configuration\n\n# Values: network_path={{network_path}}";
-    fs::write(template_root.join("python/agents/bayesian_network.py.tmpl"), template_content).unwrap();
+    let template_content = r#"
+        # Template for {{agent_id}} agent
+        class {{agent_id}}Agent:
+            network_path = "{{network_path}}"
+            # Configuration
+
+        # Values: network_path={{network_path}}
+    "#;
+    fs::write(template_root.join("python/agents/bayesian_network.py.tmpl"), template_content.trim()).unwrap();
     
     // Initialize the Python generator
     let mut python_generator = PythonGenerator::new(&template_root, &output_dir).unwrap();
@@ -139,8 +158,15 @@ fn test_decision_matrix_agent_generation() {
     fs::create_dir_all(&template_root.join("python/agents")).unwrap();
     
     // Create a simple template for testing
-    let template_content = "# Template for {{agent_id}} agent\nclass {{agent_id}}Agent:\n    matrix_definition = \"{{matrix_definition}}\"\n    # Configuration\n\n# Values: matrix_definition={{matrix_definition}}";
-    fs::write(template_root.join("python/agents/decision_matrix.py.tmpl"), template_content).unwrap();
+    let template_content = r#"
+        # Template for {{agent_id}} agent
+        class {{agent_id}}Agent:
+            matrix_definition = "{{matrix_definition}}"
+            # Configuration
+
+        # Values: matrix_definition={{matrix_definition}}
+    "#;
+    fs::write(template_root.join("python/agents/decision_matrix.py.tmpl"), template_content.trim()).unwrap();
     
     // Initialize the Python generator
     let mut python_generator = PythonGenerator::new(&template_root, &output_dir).unwrap();

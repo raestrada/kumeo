@@ -163,7 +163,10 @@ fn test_agent_missing_required_config() {
                 id: Some("agent1".to_string()),
                 agent_type: AgentType::LLM,
                 config: vec![
-                    Argument::Named("engine".to_string(), Value::String("gpt-4".to_string())),
+                    Argument::Named(
+                        "engine".to_string(), 
+                        Value::String("gpt-4".to_string())
+                    ),
                     // Missing "prompt" parameter
                 ],
             }

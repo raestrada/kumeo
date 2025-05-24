@@ -6,68 +6,68 @@ use std::collections::HashMap;
 fn test_monitor_deployment_parsing() {
     // Ejemplo con configuraciones de Monitor y Deployment
     let monitor_deployment_example = r#"
-workflow ProductionWorkflow {
-    source: NATS("production-input")
-    target: NATS("production-output")
-    
-    agents: [
-        LLM(
-            id: "production_llm",
-            engine: "ollama/llama3",
-            prompt: "Process the following production data: {{data}}"
-        )
-    ]
-    
-    monitor: {
-        log_level: "info",
-        metrics_enabled: true,
-        alert_on_error: true,
-        alert_threshold: 3,
-        alert_channels: {
-            slack: "alerts-channel",
-            email: "alerts@example.com"
+        workflow ProductionWorkflow {
+            source: NATS("production-input")
+            target: NATS("production-output")
+            
+            agents: [
+                LLM(
+                    id: "production_llm",
+                    engine: "ollama/llama3",
+                    prompt: "Process the following production data: {{data}}"
+                )
+            ]
+            
+            monitor: {
+                log_level: "info",
+                metrics_enabled: true,
+                alert_on_error: true,
+                alert_threshold: 3,
+                alert_channels: {
+                    slack: "alerts-channel",
+                    email: "alerts@example.com"
+                }
+            }
+            
+            deployment: {
+                replicas: 2,
+                memory: "2Gi",
+                cpu: "500m",
+                scaling: {
+                    min_replicas: 1,
+                    max_replicas: 5,
+                    target_cpu_utilization: 80
+                },
+                environment: "production",
+                namespace: "kumeo-prod"
+            }
         }
-    }
-    
-    deployment: {
-        replicas: 2,
-        memory: "2Gi",
-        cpu: "500m",
-        scaling: {
-            min_replicas: 1,
-            max_replicas: 5,
-            target_cpu_utilization: 80
-        },
-        environment: "production",
-        namespace: "kumeo-prod"
-    }
-}
 
-workflow DevelopmentWorkflow {
-    source: NATS("dev-input")
-    target: NATS("dev-output")
-    
-    agents: [
-        MLModel(
-            id: "dev_model",
-            model_path: "models/dev/classifier",
-            batch_size: 1
-        )
-    ]
-    
-    monitor: {
-        log_level: "debug",
-        metrics_enabled: true,
-        trace_enabled: true
-    }
-    
-    deployment: {
-        replicas: 1,
-        memory: "1Gi",
-        cpu: "200m",
-        namespace: "kumeo-dev"
-    }
-}
+        workflow DevelopmentWorkflow {
+            source: NATS("dev-input")
+            target: NATS("dev-output")
+            
+            agents: [
+                MLModel(
+                    id: "dev_model",
+                    model_path: "models/dev/classifier",
+                    batch_size: 1
+                )
+            ]
+            
+            monitor: {
+                log_level: "debug",
+                metrics_enabled: true,
+                trace_enabled: true
+            }
+            
+            deployment: {
+                replicas: 1,
+                memory: "1Gi",
+                cpu: "200m",
+                namespace: "kumeo-dev"
+            }
+        }
     "#;
     
     // Parsear el ejemplo

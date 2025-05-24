@@ -14,7 +14,12 @@ fn test_rust_generator_initialization() {
     fs::create_dir_all(&template_root.join("rust/agents")).unwrap();
     
     // Create a simple template for testing
-    let template_content = "// Template for {{agent_id}} agent\npub struct {{agent_id}}Agent {\n    // Configuration\n}";
+    let template_content = r#"
+        // Template for {{agent_id}} agent
+        pub struct {{agent_id}}Agent {
+            // Configuration
+        }
+    "#.trim();
     fs::write(template_root.join("rust/agents/llm.rs.tmpl"), template_content).unwrap();
     
     // Initialize the Rust generator
@@ -33,7 +38,15 @@ fn test_llm_agent_generation() {
     fs::create_dir_all(&template_root.join("rust/agents")).unwrap();
     
     // Create a simple template for testing
-    let template_content = "// Template for {{agent_id}} agent\npub struct {{agent_id}}Agent {\n    engine: String, // Using {{engine}}\n    prompt: String, // Using {{prompt}}\n}\n\n// Values: engine={{engine}}, prompt={{prompt}}";
+    let template_content = r#"
+        // Template for {{agent_id}} agent
+        pub struct {{agent_id}}Agent {
+            engine: String, // Using {{engine}}
+            prompt: String, // Using {{prompt}}
+        }
+
+        // Values: engine={{engine}}, prompt={{prompt}}
+    "#.trim();
     fs::write(template_root.join("rust/agents/llm.rs.tmpl"), template_content).unwrap();
     
     // Initialize the Rust generator
@@ -87,7 +100,12 @@ fn test_router_agent_generation() {
     fs::create_dir_all(&template_root.join("rust/agents")).unwrap();
     
     // Create a simple template for testing
-    let template_content = "// Template for {{agent_id}} agent\npub struct {{agent_id}}Agent {\n    routing_rules: String,\n}";
+    let template_content = r#"
+        // Template for {{agent_id}} agent
+        pub struct {{agent_id}}Agent {
+            routing_rules: String,
+        }
+    "#.trim();
     fs::write(template_root.join("rust/agents/router.rs.tmpl"), template_content).unwrap();
     
     // Initialize the Rust generator

@@ -134,44 +134,98 @@ fn test_kubernetes_manifest_content() {
     fs::create_dir_all(&template_root.join("kubernetes")).unwrap();
     
     // Create sample templates with more detailed content to test parameter substitution
-    let deployment_template = r#"apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{agent_id}}-{{workflow_name}}
-  labels:
-    app: {{agent_id}}
-    workflow: {{workflow_name}}
-    kumeo.io/agent-type: {{agent_type}}
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: {{agent_id}}
-      workflow: {{workflow_name}}
-  template:
-    metadata:
-      labels:
-        app: {{agent_id}}
-        workflow: {{workflow_name}}
-    spec:
-      containers:
-      - name: {{agent_id}}
-        image: kumeo/{{language}}-agent:latest
-        env:
-        - name: AGENT_ID
-          value: "{{agent_id}}"
-        - name: WORKFLOW_NAME
-          value: "{{workflow_name}}"
-"#;
+    let deployment_template = r#"
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: {{agent_id}}-{{workflow_name}}
+          labels:
+            app: {{agent_id}}
+            workflow: {{workflow_name}}
+            kumeo.io/agent-type: {{agent_type}}
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: {{agent_id}}
+              workflow: {{workflow_name}}
+          template:
+            metadata:
+              labels:
+                app: {{agent_id}}
+                workflow: {{workflow_name}}
+            spec:
+              containers:
+              - name: {{agent_id}}
+                image: kumeo/{{language}}-agent:latest
+                env:
+                - name: AGENT_ID
+                  value: "{{agent_id}}"
+                - name: WORKFLOW_NAME
+                  value: "{{workflow_name}}"
+    "#.trim();
     
-    // Create other required templates
-    let namespace_template = "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {{namespace}}";
-    let service_template = "apiVersion: v1\nkind: Service\nmetadata:\n  name: {{agent_id}}-{{workflow_name}}\nspec:\n  selector:\n    app: {{agent_id}}";
-    let configmap_template = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{agent_id}}-config\ndata:\n  agent-config.json: |\n    {{config_json}}";
-    let kustomization_template = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - {{resource_files}}";
-    let root_kustomization_template = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - {{resource_files}}";
-    let nats_template = "apiVersion: v1\nkind: Service\nmetadata:\n  name: nats\nspec:\n  selector:\n    app: nats";
-    let context_configmap_template = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{workflow_name}}-context\ndata:\n  context.json: |\n    {{context_json}}";
+    // Create other required templates with proper indentation
+    let namespace_template = r#"
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: {{namespace}}
+    "#.trim();
+    
+    let service_template = r#"
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: {{agent_id}}-{{workflow_name}}
+        spec:
+          selector:
+            app: {{agent_id}}
+    "#.trim();
+    
+    let configmap_template = r#"
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: {{agent_id}}-config
+        data:
+          agent-config.json: |
+            {{config_json}}
+    "#.trim();
+    
+    let kustomization_template = r#"
+        apiVersion: kustomize.config.k8s.io/v1beta1
+        kind: Kustomization
+        resources:
+          - {{resource_files}}
+    "#.trim();
+    
+    let root_kustomization_template = r#"
+        apiVersion: kustomize.config.k8s.io/v1beta1
+        kind: Kustomization
+        resources:
+          - {{resource_files}}
+    "#.trim();
+    
+    let nats_template = r#"
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: nats
+        spec:
+          selector:
+            app: nats
+    "#.trim();
+    
+    let context_configmap_template = r#"
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: {{workflow_name}}-context
+        data:
+          context.json: |
+            {{context_json}}
+    "#.trim();
     
     // Write templates to files
     fs::write(template_root.join("kubernetes/namespace.yaml.tmpl"), namespace_template).unwrap();
