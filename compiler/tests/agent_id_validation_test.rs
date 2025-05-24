@@ -4,19 +4,19 @@ use kumeo_compiler::{parse, SemanticAnalyzer};
 fn test_duplicate_agent_id_in_workflow() {
     // Create a program with duplicate agent IDs in a workflow
     let input = r#"
-    workflow TestWorkflow {
-        agents: [
-            LLM(
-                id: "agent1",
-                engine: "llama3",
-                prompt: "analyze text"
-            ),
-            MLModel(
-                id: "agent1",
-                model_path: "models/classifier"
-            )
-        ]
-    }
+        workflow TestWorkflow {
+            agents: [
+                LLM(
+                    id: "agent1",
+                    engine: "llama3",
+                    prompt: "analyze text"
+                ),
+                MLModel(
+                    id: "agent1",
+                    model_path: "models/classifier"
+                )
+            ]
+        }
     "#;
 
     let program = parse(input).expect("Failed to parse program");
@@ -40,21 +40,21 @@ fn test_duplicate_agent_id_in_workflow() {
 fn test_duplicate_agent_id_in_subworkflow_test() {
     // Create a program with duplicate agent IDs in a subworkflow
     let input = r#"
-    subworkflow DataProcessor {
-        input: ["data"]
-        output: ["result"]
-        agents: [
-            LLM(
-                id: "processor1",
-                engine: "llama3",
-                prompt: "analyze text"
-            ),
-            MLModel(
-                id: "processor1",
-                model_path: "models/classifier"
-            )
-        ]
-    }
+        subworkflow DataProcessor {
+            input: ["data"]
+            output: ["result"]
+            agents: [
+                LLM(
+                    id: "processor1",
+                    engine: "llama3",
+                    prompt: "analyze text"
+                ),
+                MLModel(
+                    id: "processor1",
+                    model_path: "models/classifier"
+                )
+            ]
+        }
     "#;
 
     let program = parse(input).expect("Failed to parse program");
@@ -79,25 +79,25 @@ fn test_unique_agent_ids_validation() {
     // Create a program with unique agent IDs (should pass validation)
     // Also include source and target which are now required
     let input = r#"
-    workflow ValidWorkflow {
-        source: NATS("input_topic")
-        target: NATS("output_topic")
-        agents: [
-            LLM(
-                id: "text_processor",
-                engine: "llama3",
-                prompt: "analyze text"
-            ),
-            MLModel(
-                id: "classifier",
-                model_path: "models/classifier"
-            ),
-            BayesianNetwork(
-                id: "risk_analyzer", 
-                network_path: "models/risk.bn"
-            )
-        ]
-    }
+        workflow ValidWorkflow {
+            source: NATS("input_topic")
+            target: NATS("output_topic")
+            agents: [
+                LLM(
+                    id: "text_processor",
+                    engine: "llama3",
+                    prompt: "analyze text"
+                ),
+                MLModel(
+                    id: "classifier",
+                    model_path: "models/classifier"
+                ),
+                BayesianNetwork(
+                    id: "risk_analyzer", 
+                    network_path: "models/risk.bn"
+                )
+            ]
+        }
     "#;
 
     let program = parse(input).expect("Failed to parse program");

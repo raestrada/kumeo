@@ -5,48 +5,48 @@ use kumeo_compiler::parse;
 fn test_context_parsing() {
     // Ejemplo con diferentes tipos de contexto
     let context_example = r#"
-workflow ContextTestWorkflow {
-    source: NATS("input-events")
-    target: NATS("output-events")
-    
-    context: KnowledgeBase("spanish-language")
-    
-    agents: [
-        LLM(
-            id: "text_processor",
-            engine: "ollama/llama3",
-            prompt: "Analyze the following text: {{data}}"
-        )
-    ]
-}
+        workflow ContextTestWorkflow {
+            source: NATS("input-events")
+            target: NATS("output-events")
+            
+            context: KnowledgeBase("spanish-language")
+            
+            agents: [
+                LLM(
+                    id: "text_processor",
+                    engine: "ollama/llama3",
+                    prompt: "Analyze the following text: {{data}}"
+                )
+            ]
+        }
 
-workflow DatabaseContextWorkflow {
-    source: NATS("db-events")
-    target: NATS("db-results")
-    
-    context: Database("postgres", "postgresql://user:pass@localhost:5432/mydb")
-    
-    agents: [
-        MLModel(
-            id: "data_classifier",
-            model_path: "models/classifier"
-        )
-    ]
-}
+        workflow DatabaseContextWorkflow {
+            source: NATS("db-events")
+            target: NATS("db-results")
+            
+            context: Database("postgres", "postgresql://user:pass@localhost:5432/mydb")
+            
+            agents: [
+                MLModel(
+                    id: "data_classifier",
+                    model_path: "models/classifier"
+                )
+            ]
+        }
 
-workflow BayesNetContextWorkflow {
-    source: NATS("probability-events")
-    target: NATS("probability-results")
-    
-    context: BayesianNetwork("medical-diagnosis")
-    
-    agents: [
-        BayesianNetwork(
-            id: "diagnosis_engine",
-            network_path: "models/bayesian/diagnosis"
-        )
-    ]
-}
+        workflow BayesNetContextWorkflow {
+            source: NATS("probability-events")
+            target: NATS("probability-results")
+            
+            context: BayesianNetwork("medical-diagnosis")
+            
+            agents: [
+                BayesianNetwork(
+                    id: "diagnosis_engine",
+                    network_path: "models/bayesian/diagnosis"
+                )
+            ]
+        }
     "#;
     
     // Parsear el ejemplo

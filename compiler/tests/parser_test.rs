@@ -5,18 +5,18 @@ use kumeo_compiler::parse;
 fn test_simple_workflow_parsing() {
     // Simple test input
     let test_input = r#"
-workflow SimpleWorkflow {
-    source: NATS("input-events")
-    target: NATS("output-events")
-    
-    agents: [
-        LLM(
-            id: "text_processor",
-            engine: "ollama/llama3",
-            prompt: "Analyze the following text: {{data}}"
-        )
-    ]
-}
+        workflow SimpleWorkflow {
+            source: NATS("input-events")
+            target: NATS("output-events")
+            
+            agents: [
+                LLM(
+                    id: "text_processor",
+                    engine: "ollama/llama3",
+                    prompt: "Analyze the following text: {{data}}"
+                )
+            ]
+        }
     "#;
     
     // Parse the input
@@ -81,20 +81,20 @@ workflow SimpleWorkflow {
 fn test_workflow_with_multi_agent() {
     // Test input with multiple agents
     let test_input = r#"
-workflow MultiAgentWorkflow {
-    source: NATS("data-input")
-    
-    agents: [
-        LLM(
-            id: "summarizer",
-            engine: "mistral"
-        ),
-        MLModel(
-            id: "classifier",
-            model_path: "models/classifier"
-        )
-    ]
-}
+        workflow MultiAgentWorkflow {
+            source: NATS("data-input")
+            
+            agents: [
+                LLM(
+                    id: "summarizer",
+                    engine: "mistral"
+                ),
+                MLModel(
+                    id: "classifier",
+                    model_path: "models/classifier"
+                )
+            ]
+        }
     "#;
     
     // Parse the input
