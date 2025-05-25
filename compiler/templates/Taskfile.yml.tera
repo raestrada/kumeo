@@ -1,0 +1,135 @@
+# Taskfile for {{ workflow.name }} workflow
+version: '3'
+
+# Global variables
+vars:
+  # Common variables
+  NAMESPACE: "kumeo"
+  REGISTRY: ""
+  TAG: latest
+  
+  # Agent-specific variables will be added by the codegen
+  {% for agent in workflow.agents %}
+  {{ agent.id | upper }}_TAG: {{ agent.version | default("latest") }}
+  {% endfor %}
+
+# Main tasks
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list-all
+
+  # Build all agents
+  build:
+    desc: Build all agents
+    deps: 
+      - build:rust
+      - build:python
+
+  # Build all Rust agents
+  build:rust:
+    desc: Build all Rust agents
+    cmds:
+      {% for agent in rust_agents %}
+      - task build:rust:{{ agent }}
+      {% endfor %}
+
+  # Build all Python agents
+  build:python:
+    desc: Build all Python agents
+    cmds:
+      {% for agent in python_agents %}
+      - task build:python:{{ agent }}
+      {% endfor %}
+
+  # Build a specific Rust agent
+  {% for agent in rust_agents %}
+  build:rust:{{ agent }}:
+    desc: Build Rust agent {{ agent }}
+    cmds:
+      - cd rust-{{ agent }}-agent && task build
+  {% endfor %}
+
+  # Build a specific Python agent
+  {% for agent in python_agents %}
+  build:python:{{ agent }}:
+    desc: Build Python agent {{ agent }}
+    cmds:
+      - cd python-{{ agent }}-agent && task build
+  {% endfor %}
+
+  # Test all agents
+  test:
+    desc: Test all agents
+    deps:
+      - test:rust
+      - test:python
+
+  # Test all Rust agents
+  test:rust:
+    desc: Test all Rust agents
+    cmds:
+      {% for agent in rust_agents %}
+      - task test:rust:{{ agent }}
+      {% endfor %}
+
+  # Test all Python agents
+  test:python:
+    desc: Test all Python agents
+    cmds:
+      {% for agent in python_agents %}
+      - task test:python:{{ agent }}
+      {% endfor %}
+
+  # Test a specific Rust agent
+  {% for agent in rust_agents %}
+  test:rust:{{ agent }}:
+    desc: Test Rust agent {{ agent }}
+    cmds:
+      - cd rust-{{ agent }}-agent && task test
+  {% endfor %}
+
+  # Test a specific Python agent
+  {% for agent in python_agents %}
+  test:python:{{ agent }}:
+    desc: Test Python agent {{ agent }}
+    cmds:
+      - cd python-{{ agent }}-agent && task test
+  {% endfor %}
+
+  # Deploy all components
+  deploy:
+    desc: Deploy all components
+    cmds:
+      - task deploy:kubernetes
+
+  # Clean build artifacts
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - task clean:all
+
+  clean:all:
+    desc: Remove all build artifacts
+    cmds:
+      # Clean Rust agents
+      {% for agent in rust_agents %}
+      - cd rust-{{ agent }}-agent && task clean
+      {% endfor %}
+      
+      # Clean Python agents
+      {% for agent in python_agents %}
+      - cd python-{{ agent }}-agent && task clean
+      {% endfor %}
+      
+      # Clean common artifacts
+      - rm -rf dist/
+      - rm -rf .pytest_cache/
+      - rm -rf target/
+      - find . -name "*.pyc" -delete
+      - find . -name "__pycache__" -delete
+      - find . -name "*.pyo" -delete
+      - find . -name "*.pyd" -delete
+      - find . -name "*.so" -delete
+      - find . -name "*.egg-info" -exec rm -rf {} +

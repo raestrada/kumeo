@@ -1,0 +1,64 @@
+# Helm deployment tasks for {{ workflow.name }}
+version: '3'
+
+vars:
+  NAMESPACE: "kumeo"
+  RELEASE_NAME: "{{ workflow.name | slugify }}"
+  CHART_DIR: "deploy/helm/{{ workflow.name | slugify }}"
+  VALUES_FILE: "values.yaml"
+  REGISTRY: ""
+  TAG: latest
+
+tasks:
+  # Deploy all components using Helm
+  all:
+    desc: Deploy all components using Helm
+    cmds:
+      - task deploy:kubernetes
+
+  # Deploy to Kubernetes using Helm
+  kubernetes:
+    desc: Deploy to Kubernetes using Helm
+    cmds:
+      - |
+        helm upgrade --install \
+          --namespace {{ .NAMESPACE }} \
+          --create-namespace \
+          -f {{ .CHART_DIR }}/{{ .VALUES_FILE }} \
+          {{ .RELEASE_NAME }} \
+          {{ .CHART_DIR }}
+
+  # Uninstall Helm release
+  uninstall:
+    desc: Uninstall Helm release
+    cmds:
+      - helm uninstall --namespace {{ .NAMESPACE }} {{ .RELEASE_NAME }}
+
+  # List all releases
+  list:
+    desc: List all Helm releases
+    cmds:
+      - helm list --all-namespaces
+
+  # Show status of a release
+  status:
+    desc: Show status of the release
+    cmds:
+      - helm status --namespace {{ .NAMESPACE }} {{ .RELEASE_NAME }}
+
+  # Template the chart (dry-run)
+  template:
+    desc: Template the chart (dry-run)
+    cmds:
+      - |
+        helm template \
+          --namespace {{ .NAMESPACE }} \
+          -f {{ .CHART_DIR }}/{{ .VALUES_FILE }} \
+          {{ .RELEASE_NAME }} \
+          {{ .CHART_DIR }}
+
+  # Lint the chart
+  lint:
+    desc: Lint the Helm chart
+    cmds:
+      - helm lint {{ .CHART_DIR }}

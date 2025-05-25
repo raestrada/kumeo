@@ -6,7 +6,10 @@ description = "Kumeo Agent - Generated from Kumeo DSL"
 authors = ["Kumeo Team"]
 
 [dependencies]
-kumeo-runtime = { version = "0.1", path = "../runtime" }
+# Protos generados para comunicación con el runtime
+kumeo-protos = { version = "0.1", path = "../protos" }
+
+# Dependencias generales
 tokio = { version = "1.0", features = ["full", "rt-multi-thread"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -14,6 +17,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 thiserror = "1.0"
+async-trait = "0.1"
+uuid = { version = "1.0", features = ["v4", "serde"] }
 
 # gRPC y Protocol Buffers
 tonic = { version = "0.8", features = ["tls"] }
@@ -26,7 +31,6 @@ bytes = "1.0"
 
 # Para conexión Unix
 mio = { version = "0.8", features = ["os-ext", "os-poll"] }
-tokio-net = { version = "0.3" }
 
 {% if agents is containing("LLM") -%}
 # Dependencies for LLM agent

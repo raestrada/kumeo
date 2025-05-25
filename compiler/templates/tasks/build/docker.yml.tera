@@ -1,0 +1,43 @@
+# Docker build tasks for {{ workflow.name }}
+version: '3'
+
+vars:
+  REGISTRY: ""
+  TAG: latest
+
+tasks:
+  # Build all Docker images
+  all:
+    desc: Build all Docker images
+    cmds:
+      {% for agent in workflow.agents %}
+      - task build:docker:{{ agent.id }}
+      {% endfor %}
+
+  # Build a specific agent's Docker image
+  {% for agent in workflow.agents %}
+  {{ agent.id }}:
+    desc: Build Docker image for {{ agent.id }}
+    cmds:
+      - docker build \
+          -f docker/{{ agent.id }}-agent/Dockerfile \
+          -t {{ agent.id }}-agent:{{ .TAG }} \
+          .
+  {% endfor %}
+
+  # Push all Docker images
+  push:
+    desc: Push all Docker images
+    cmds:
+      {% for agent in workflow.agents %}
+      - task build:docker:{{ agent.id }}:push
+      {% endfor %}
+
+  # Push a specific agent's Docker image
+  {% for agent in workflow.agents %}
+  {{ agent.id }}:push:
+    desc: Push Docker image for {{ agent.id }}
+    cmds:
+      - docker tag {{ agent.id }}-agent:{{ .TAG }} {{ .REGISTRY }}/{{ agent.id }}-agent:{{ .TAG }}
+      - docker push {{ .REGISTRY }}/{{ agent.id }}-agent:{{ .TAG }}
+  {% endfor %}

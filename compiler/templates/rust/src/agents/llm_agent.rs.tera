@@ -1,11 +1,10 @@
 use std::sync::Arc;
 use anyhow::{Result, Context};
-use async_trait::async_trait;
-use serde_json::{Value, json};
 use tokio_stream::StreamExt;
 use tracing::{info, error, debug};
 
-use crate::utils::runtime_client::RuntimeClient;
+use crate::kumeo_runtime::prelude::*;
+use crate::kumeo_runtime::RuntimeClient;
 use super::Agent;
 
 #[cfg(feature = "llm")]

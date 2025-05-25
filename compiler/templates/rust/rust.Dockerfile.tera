@@ -1,0 +1,46 @@
+# Build stage
+FROM rust:1.76-slim-bookworm as builder
+
+WORKDIR /app
+
+# Create a new empty shell project
+RUN USER=root cargo new --bin app
+WORKDIR /app/app
+
+# Copy manifests
+COPY ./Cargo.toml ./Cargo.toml
+
+# Build dependencies to cache them
+RUN cargo build --release
+RUN rm src/*.rs
+
+# Copy source code
+COPY ./src ./src
+
+# Remove the dummy artifact and rebuild
+RUN rm ./target/release/deps/app*
+RUN cargo build --release
+
+# Runtime stage
+FROM gcr.io/distroless/cc-debian12 AS runtime
+
+# Create a non-root user
+USER nonroot:nonroot
+
+WORKDIR /app
+
+# Copy the compiled binary
+COPY --from=builder --chown=nonroot:nonroot /app/app/target/release/{{ workflow.name | lower }}-{{ agent.id | lower }}-agent /app/agent
+
+# Set runtime environment variables
+ENV RUST_LOG=info
+ENV AGENT_ID={{ agent.id }}
+
+# Socket for runtime communication
+VOLUME ["/run/kumeo"]
+
+# Expose port if needed
+# EXPOSE 8080
+
+# Run the binary
+CMD ["/app/agent"]

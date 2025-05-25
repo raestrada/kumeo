@@ -23,7 +23,7 @@
 
 # Build artifacts
 dist/
-build/
+/build/
 
 # VSCode Rust analyzer
 .rust-analyzer

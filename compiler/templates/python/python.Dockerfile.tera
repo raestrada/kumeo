@@ -1,0 +1,40 @@
+# Build stage
+FROM python:3.11-slim-bookworm as builder
+
+WORKDIR /app
+
+# Install poetry for dependency management
+RUN pip install --no-cache-dir poetry==1.7.1
+
+# Copy dependency definitions
+COPY ./pyproject.toml ./poetry.lock* ./
+
+# Configure poetry to not use virtualenvs
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --no-dev
+
+# Copy source code
+COPY . .
+
+# Runtime stage
+FROM gcr.io/distroless/python3-debian12:nonroot
+
+WORKDIR /app
+
+# Copy installed packages and source code
+COPY --from=builder --chown=nonroot:nonroot /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder --chown=nonroot:nonroot /app /app
+
+# Socket for runtime communication
+VOLUME ["/run/kumeo"]
+
+# Set runtime environment variables
+ENV PYTHONUNBUFFERED=1
+ENV AGENT_ID={{ agent.id }}
+ENV AGENT_TYPE={{ agent.agent_type | lower }}
+
+# Run as non-root
+USER nonroot:nonroot
+
+# Command to run the application
+CMD ["python", "/app/main.py"]

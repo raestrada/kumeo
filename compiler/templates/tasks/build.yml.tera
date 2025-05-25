@@ -1,0 +1,37 @@
+# Build tasks for {{ workflow.name }}
+version: '3'
+
+vars:
+  REGISTRY: ""
+  TAG: latest
+
+tasks:
+  all:
+    desc: Build all components
+    cmds:
+      - task build:rust
+      - task build:python
+      - task build:docker
+
+  rust:
+    desc: Build Rust agents
+    cmds:
+      {% for agent in workflow.agents %}
+      {% if agent.agent_type == "LLM" or agent.agent_type == "Router" %}
+      - cd agents/{{ agent.id }}-agent && cargo build --release
+      {% endif %}
+      {% endfor %}
+
+  python:
+    desc: Build Python agents
+    cmds:
+      {% for agent in workflow.agents %}
+      {% if agent.agent_type == "MLModel" or agent.agent_type == "BayesianNetwork" %}
+      - cd agents/{{ agent.id }}-agent && pip install -e .
+      {% endif %}
+      {% endfor %}
+
+  docker:
+    desc: Build Docker images
+    cmds:
+      - cd docker && ./build-all.sh

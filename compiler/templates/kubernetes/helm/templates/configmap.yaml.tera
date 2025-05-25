@@ -1,14 +1,32 @@
+{{- /* Generate a configmap for each agent */}}
+{{- range $index, $agent := .Values.agents }}
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Values.agent.name }}-config
+  name: {{ include "kumeo.fullname" $ }}-{{ $agent.id | default (printf "agent-%d" $index) | kebabcase }}
+  labels:
+    {{- include "kumeo.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/instance: {{ $agent.id | default (printf "agent-%d" $index) | kebabcase }}
 data:
   config.yaml: |
     agent:
-      id: {{ .Values.agent.id }}
-      name: {{ .Values.agent.name }}
+      id: {{ $agent.id | default (printf "agent-%d" $index) }}
+      name: {{ $agent.name | default $agent.id | default (printf "Agent %d" $index) }}
+      type: {{ $agent.type | default "generic" }}
     
     # Add any additional configuration here
-    {{- range $key, $value := .Values.config }}
+    {{- if $agent.config }}
+    {{- range $key, $value := $agent.config }}
     {{ $key }}: {{ $value | toYaml | nindent 4 }}
     {{- end }}
+    {{- end }}
+    
+    {{- if $.Values.config }}
+    # Global configuration
+    {{- range $key, $value := $.Values.config }}
+    {{ $key }}: {{ $value | toYaml | nindent 4 }}
+    {{- end }}
+    {{- end }}
+{{- end }}

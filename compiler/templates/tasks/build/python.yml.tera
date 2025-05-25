@@ -1,0 +1,37 @@
+# Python build tasks for {{ workflow.name }}
+version: '3'
+
+tasks:
+  # Build all Python agents
+  all:
+    desc: Build all Python agents
+    cmds:
+      {% for agent in workflow.agents %}
+      {% if agent.agent_type == "MLModel" or agent.agent_type == "BayesianNetwork" %}
+      - cd agents/{{ agent.id }}-agent && pip install -e .
+      {% endif %}
+      {% endfor %}
+
+  # Install Python dependencies
+  deps:
+    desc: Install Python dependencies
+    cmds:
+      - pip install -r requirements.txt
+
+  # Run Python tests
+  test:
+    desc: Run Python tests
+    cmds:
+      - python -m pytest tests/
+
+  # Format Python code
+  fmt:
+    desc: Format Python code with black
+    cmds:
+      - black --check .
+
+  # Lint Python code
+  lint:
+    desc: Lint Python code with flake8
+    cmds:
+      - flake8

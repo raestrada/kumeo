@@ -1,15 +1,31 @@
+{{- /* Generate a service for each agent */}}
+{{- range $index, $agent := .Values.agents }}
+---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Values.agent.name }}
+  name: {{ include "kumeo.fullname" $ }}-{{ $agent.id | default (printf "agent-%d" $index) | kebabcase }}
   labels:
-    app: {{ .Values.agent.name }}
+    {{- include "kumeo.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/instance: {{ $agent.id | default (printf "agent-%d" $index) | kebabcase }}
 spec:
-  type: {{ .Values.service.type }}
+  type: {{ $agent.service.type | default $.Values.service.type | default "ClusterIP" }}
   ports:
-    - port: {{ .Values.service.port }}
+    - port: {{ $agent.service.port | default $.Values.service.port | default 80 }}
       targetPort: http
       protocol: TCP
       name: http
+    {{- if $agent.service.additionalPorts }}
+    {{- range $agent.service.additionalPorts }}
+    - port: {{ .port }}
+      targetPort: {{ .targetPort | default .port }}
+      protocol: {{ .protocol | default "TCP" }}
+      name: {{ .name }}
+    {{- end }}
+    {{- end }}
   selector:
-    app: {{ .Values.agent.name }}
+    {{- include "kumeo.selectorLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/instance: {{ $agent.id | default (printf "agent-%d" $index) | kebabcase }}
+{{- end }}
