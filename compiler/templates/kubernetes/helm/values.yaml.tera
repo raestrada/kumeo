@@ -1,0 +1,82 @@
+# Default values for {{project_name|default("kumeo-agent")}}.
+# This is a YAML-formatted file.
+
+replicaCount: 1
+
+image:
+  repository: {{image_repository|default("ghcr.io/kumeo/agent")}}
+  pullPolicy: IfNotPresent
+  tag: "{{image_tag|default("latest")}}"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases the chances of the chart working out of the box
+  # on a wide variety of Kubernetes clusters.
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# KEDA (Kubernetes Event-Driven Autoscaling) configuration
+keda:
+  enabled: true
+  # Additional KEDA trigger configurations can be added here
+  triggers: []
+
+# Configuration for the Kumeo agent
+config:
+  # Path to the runtime socket
+  runtimeSocket: "/tmp/kumeo-runtime.sock"
+  
+  # Agent-specific configuration
+  agents:
+    {% for agent in agents %}
+    {{agent|lower}}:
+      enabled: true
+      # Add agent-specific configuration here
+    {% endfor %}

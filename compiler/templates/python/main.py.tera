@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""
+{{agent_name}} - Main entry point for the agent
+"""
+import asyncio
+import logging
+import os
+import signal
+import sys
+from pathlib import Path
+from typing import Dict, Any, Optional, List
+
+# Add the current directory to the path so we can import our modules
+sys.path.append(str(Path(__file__).parent.absolute()))
+
+# Import the Kumeo runtime client
+from kumeo_runtime import RuntimeClient, Agent, KumeoRuntimeError
+
+# Import the base agent
+from agents.base_agent import BaseAgent
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Import agent implementations
+{% for agent in agents %}
+from agents.{{agent|lower}}_agent import {{agent}}Agent
+{% endfor %}
+
+class AgentRegistry:
+    """Registry for all available agents"""
+    
+    def __init__(self, runtime_client: RuntimeClient):
+        self.runtime = runtime_client
+        self.agents: Dict[str, Agent] = {}
+        self.running = False
+    
+    async def start(self) -> None:
+        """Start all registered agents"""
+        self.running = True
+        logger.info("Starting all agents...")
+        
+        # Register signal handlers for graceful shutdown
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(
+                sig,
+                lambda s=sig: asyncio.create_task(self.shutdown(s))
+            )
+        
+        # Start all agents
+        for agent_id, agent in self.agents.items():
+            try:
+                await agent.start()
+                logger.info(f"Started agent: {agent_id}")
+            except Exception as e:
+                logger.error(f"Failed to start agent {agent_id}: {e}", exc_info=True)
+    
+    async def shutdown(self, sig=None) -> None:
+        """Shutdown all agents and cleanup"""
+        if not self.running:
+            return
+            
+        self.running = False
+        
+        if sig:
+            logger.info(f"Received signal {sig.name}, shutting down...")
+        else:
+            logger.info("Shutting down...")
+        
+        # Stop all agents
+        for agent_id, agent in self.agents.items():
+            try:
+                await agent.stop()
+                logger.info(f"Stopped agent: {agent_id}")
+            except Exception as e:
+                logger.error(f"Error stopping agent {agent_id}: {e}", exc_info=True)
+        
+        # Close the runtime connection
+        try:
+            await self.runtime.close()
+        except Exception as e:
+            logger.error(f"Error closing runtime connection: {e}", exc_info=True)
+        
+        logger.info("Shutdown complete")
+        
+        # Exit the application
+        os._exit(0)
+    
+    def register_agent(self, agent_id: str, agent: Agent) -> None:
+        """Register an agent"""
+        if agent_id in self.agents:
+            logger.warning(f"Agent {agent_id} is already registered, replacing it")
+        self.agents[agent_id] = agent
+        logger.info(f"Registered agent: {agent_id}")
+    
+    def unregister_agent(self, agent_id: str) -> None:
+        """Unregister an agent"""
+        if agent_id in self.agents:
+            del self.agents[agent_id]
+            logger.info(f"Unregistered agent: {agent_id}")
+    
+    def get_agent(self, agent_id: str) -> Optional[Agent]:
+        """Get an agent by ID"""
+        return self.agents.get(agent_id)
+    
+    def list_agents(self) -> List[str]:
+        """List all registered agent IDs"""
+        return list(self.agents.keys())
+    
+    async def process_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """Process an incoming message"""
+        try:
+            # Extract the target agent ID from the message
+            agent_id = message.get('target_agent')
+            if not agent_id:
+                return {
+                    'success': False,
+                    'error': 'No target_agent specified in message'
+                }
+            
+            # Find the agent
+            agent = self.get_agent(agent_id)
+            if not agent:
+                return {
+                    'success': False,
+                    'error': f'Agent {agent_id} not found'
+                }
+            
+            # Process the message with the agent
+            result = await agent.handle_message(message.get('payload', {}))
+            return {
+                'success': True,
+                'result': result
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing message: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
+    async def register_all(self):
+        """Register all available agents"""
+        {% for agent in agents %}
+        await self._register_{{agent|lower}}_agent()
+        {% endfor %}
+    
+    # Registration methods for each agent type
+    {% for agent in agents %}
+    async def _register_{{agent|lower}}_agent(self):
+        """Register the {{agent}} agent"""
+        agent = {{agent}}Agent(self.runtime)
+        await agent.start()
+        self.agents[agent.agent_id] = agent
+    {% endfor %}
+
+async def main():
+    """Main entry point"""
+    logger.info("Starting Kumeo Agent")
+    
+    # Initialize runtime client
+    socket_path = "{{socket_path|default('/tmp/kumeo-runtime.sock')}}"
+    runtime = await RuntimeClient.connect(f"unix://{socket_path}")
+    
+    # Initialize agent registry
+    registry = AgentRegistry(runtime)
+    await registry.register_all()
+    
+    # Keep the application running
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        logger.info("Shutting down...")
+    except Exception as e:
+        logger.exception("Error in main loop")
+        raise
+
+if __name__ == "__main__":
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Handle graceful shutdown
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(
+            sig, 
+            lambda s=sig: asyncio.create_task(shutdown(loop, sig))
+        )
+    
+    try:
+        loop.run_until_complete(main())
+    finally:
+        loop.close()
+
+async def shutdown(loop, sig):
+    """Handle shutdown"""
+    logger.info(f"Received exit signal {sig.name}...")
+    
+    # Cancel all running tasks
+    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    for task in tasks:
+        task.cancel()
+    
+    await asyncio.gather(*tasks, return_exceptions=True)
+    loop.stop()

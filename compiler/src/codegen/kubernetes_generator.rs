@@ -1,12 +1,68 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use crate::ast::{Program, Workflow, Subworkflow, Agent};
+use serde::Serialize;
+use anyhow::Context;
+use crate::ast::{Program, Workflow, Subworkflow, Agent, AgentType};
 use crate::codegen::template_manager::{TemplateManager, Result, TemplateError};
 use tracing::{debug, info, warn, error, instrument};
+
+/// Context for Kubernetes manifest generation
+#[derive(Debug, Serialize)]
+struct KubernetesContext {
+    project_name: String,
+    namespace: String,
+    version: String,
+    workflows: Vec<WorkflowContext>,
+    subworkflows: Vec<SubworkflowContext>,
+}
+
+/// Context for workflow manifest generation
+#[derive(Debug, Serialize)]
+struct WorkflowContext {
+    name: String,
+    namespace: String,
+    agents: Vec<AgentContext>,
+}
+
+/// Context for subworkflow manifest generation
+#[derive(Debug, Serialize)]
+struct SubworkflowContext {
+    name: String,
+    namespace: String,
+    agents: Vec<AgentContext>,
+}
+
+/// Context for agent manifest generation
+#[derive(Debug, Serialize)]
+struct AgentContext {
+    name: String,
+    agent_type: AgentType,
+    namespace: String,
+    image: String,
+    config: serde_json::Value,
+    input_topic: Option<String>,
+    output_topic: Option<String>,
+    resources: ResourceRequirements,
+}
+
+/// Resource requirements for Kubernetes containers
+#[derive(Debug, Serialize)]
+struct ResourceRequirements {
+    requests: ResourceQuantity,
+    limits: ResourceQuantity,
+}
+
+/// Resource quantity for Kubernetes
+#[derive(Debug, Serialize)]
+struct ResourceQuantity {
+    cpu: String,
+    memory: String,
+}
 
 pub struct KubernetesGenerator {
     template_manager: TemplateManager,
     output_dir: PathBuf,
+    context: KubernetesContext,
 }
 
 impl KubernetesGenerator {
@@ -21,11 +77,21 @@ impl KubernetesGenerator {
             std::fs::create_dir_all(&output_dir)?;
         }
         
+        // Initialize context with default values
+        let context = KubernetesContext {
+            project_name: "kumeo".to_string(),
+            namespace: "kumeo".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            workflows: Vec::new(),
+            subworkflows: Vec::new(),
+        };
+        
         info!("Kubernetes generator initialized");
         
         Ok(Self {
             template_manager,
             output_dir,
+            context,
         })
     }
     
@@ -33,6 +99,9 @@ impl KubernetesGenerator {
     pub fn generate_kubernetes_manifests(&mut self, program: &Program) -> Result<PathBuf> {
         info!("Generating Kubernetes manifests for program");
         debug!(workflows_count = program.workflows.len(), "Program details");
+        
+        // Update context with program details
+        self.context.project_name = program.name.clone().unwrap_or_else(|| "kumeo".to_string());
         
         // Generate a namespace for the program
         self.generate_namespace(program)?;
@@ -42,67 +111,131 @@ impl KubernetesGenerator {
         
         // Generate manifests for each workflow
         for workflow in &program.workflows {
+            self.context.workflows.push(WorkflowContext {
+                name: workflow.name.clone(),
+                namespace: self.context.namespace.clone(),
+                agents: Vec::new(),
+            });
             self.generate_workflow_manifests(workflow)?;
         }
         
         // Generate manifests for each subworkflow
         for subworkflow in &program.subworkflows {
+            self.context.subworkflows.push(SubworkflowContext {
+                name: subworkflow.name.clone(),
+                namespace: self.context.namespace.clone(),
+                agents: Vec::new(),
+            });
             self.generate_subworkflow_manifests(subworkflow)?;
         }
         
-        // Generate the combined kustomization file
+        // Generate the root kustomization file
         self.generate_kustomization(program)?;
+        
+        info!(
+            "Successfully generated all Kubernetes manifests in {}", 
+            self.output_dir.display()
+        );
         
         Ok(self.output_dir.clone())
     }
     
     /// Generate a Kubernetes namespace for the program
-    #[instrument(skip(self, _program))]
-    pub fn generate_namespace(&mut self, _program: &Program) -> Result<PathBuf> {
-        info!("Generating Kubernetes namespace manifest");
-        let mut params = HashMap::new();
-        params.insert("namespace".to_string(), "kumeo".to_string());
+    fn generate_namespace(&mut self, _program: &Program) -> Result<PathBuf> {
+        info!("Generating Kubernetes namespace");
         
-        debug!("Rendering namespace template");
-        let template_content = self.template_manager.render_template("namespace.yaml", &params)?;
+        // Create context for the template
+        let namespace_ctx = serde_json::json!({
+            "namespace": self.context.namespace,
+            "project_name": self.context.project_name,
+        });
         
-        let output_file = self.output_dir.join("namespace.yaml");
-        debug!(path = ?output_file.display(), "Writing namespace manifest");
+        // Create the namespace directory
+        let namespace_dir = self.output_dir.join("namespace");
+        std::fs::create_dir_all(&namespace_dir)
+            .context("Failed to create namespace directory")?;
         
-        match std::fs::write(&output_file, &template_content) {
-            Ok(_) => {
-                info!(path = %output_file.display(), "Successfully generated namespace manifest");
-                Ok(output_file)
-            },
-            Err(e) => {
-                error!(error = %e, path = %output_file.display(), "Failed to write namespace manifest");
-                Err(TemplateError::Io(e))
-            }
-        }
+        // Render the namespace template
+        let namespace = self.template_manager.render_with_serializable(
+            "namespace/namespace.yaml.tera",
+            &namespace_ctx
+        )?;
+        
+        // Write the namespace manifest to a file
+        let namespace_file = namespace_dir.join("namespace.yaml");
+        std::fs::write(&namespace_file, namespace)
+            .context("Failed to write namespace manifest")?;
+        
+        // Generate kustomization.yaml for the namespace
+        let kustomization = self.template_manager.render_with_serializable(
+            "namespace/kustomization.yaml.tera",
+            &namespace_ctx
+        )?;
+        std::fs::write(namespace_dir.join("kustomization.yaml"), kustomization)
+            .context("Failed to write namespace kustomization")?;
+        
+        info!(
+            namespace = %self.context.namespace,
+            path = %namespace_file.display(),
+            "Successfully generated Kubernetes namespace"
+        );
+        
+        Ok(namespace_file)
     }
     
     /// Generate NATS infrastructure manifests
     #[instrument(skip(self))]
     pub fn generate_nats_infrastructure(&mut self) -> Result<PathBuf> {
         info!("Generating NATS infrastructure manifests");
-        let params = HashMap::new();
         
-        debug!("Rendering NATS infrastructure template");
-        let template_content = self.template_manager.render_template("nats.yaml", &params)?;
+        // Create context for the template
+        let nats_ctx = serde_json::json!({
+            "namespace": self.context.namespace,
+            "project_name": self.context.project_name,
+        });
         
-        let output_file = self.output_dir.join("nats.yaml");
-        debug!(path = ?output_file.display(), "Writing NATS infrastructure manifest");
+        // Create the NATS directory
+        let nats_dir = self.output_dir.join("nats");
+        std::fs::create_dir_all(&nats_dir)
+            .context("Failed to create NATS directory")?;
         
-        match std::fs::write(&output_file, &template_content) {
-            Ok(_) => {
-                info!(path = %output_file.display(), "Successfully generated NATS infrastructure manifest");
-                Ok(output_file)
-            },
-            Err(e) => {
-                error!(error = %e, path = %output_file.display(), "Failed to write NATS infrastructure manifest");
-                Err(TemplateError::Io(e))
-            }
-        }
+        // Render the NATS StatefulSet template
+        let statefulset = self.template_manager.render_with_serializable(
+            "nats/statefulset.yaml.tera",
+            &nats_ctx
+        )?;
+        
+        // Write the StatefulSet manifest to a file
+        let statefulset_file = nats_dir.join("statefulset.yaml");
+        std::fs::write(&statefulset_file, statefulset)
+            .context("Failed to write NATS StatefulSet manifest")?;
+        
+        // Render the NATS Service template
+        let service = self.template_manager.render_with_serializable(
+            "nats/service.yaml.tera",
+            &nats_ctx
+        )?;
+        
+        // Write the Service manifest to a file
+        let service_file = nats_dir.join("service.yaml");
+        std::fs::write(&service_file, service)
+            .context("Failed to write NATS Service manifest")?;
+        
+        // Generate kustomization.yaml for NATS
+        let kustomization = self.template_manager.render_with_serializable(
+            "nats/kustomization.yaml.tera",
+            &nats_ctx
+        )?;
+        std::fs::write(nats_dir.join("kustomization.yaml"), kustomization)
+            .context("Failed to write NATS kustomization")?;
+        
+        info!(
+            namespace = %self.context.namespace,
+            path = %nats_dir.display(),
+            "Successfully generated NATS infrastructure"
+        );
+        
+        Ok(nats_dir)
     }
     
     /// Generate Kubernetes manifests for a workflow
@@ -182,211 +315,254 @@ impl KubernetesGenerator {
     /// Generate Kubernetes manifests for an agent
     fn generate_agent_manifests(&mut self, agent: &Agent, workflow: &Workflow, output_dir: &Path, index: usize) -> Result<PathBuf> {
         let agent_id = agent.id.as_ref().ok_or_else(|| {
+            error!("Agent is missing ID");
             TemplateError::Rendering("Agent is missing ID".to_string())
         })?;
         
-        // Determine which language the agent uses based on its type
-        let language = match agent.agent_type {
-            crate::ast::AgentType::LLM | 
-            crate::ast::AgentType::Router | 
-            crate::ast::AgentType::Aggregator | 
-            crate::ast::AgentType::RuleEngine | 
-            crate::ast::AgentType::DataNormalizer | 
-            crate::ast::AgentType::MissingValueHandler => "rust",
-            
-            crate::ast::AgentType::MLModel | 
-            crate::ast::AgentType::BayesianNetwork | 
-            crate::ast::AgentType::DecisionMatrix => "python",
-            
-            crate::ast::AgentType::HumanInLoop => "hybrid",
-            crate::ast::AgentType::Custom(_) => "rust", // Default to rust for custom agents
+        debug!("Generating manifests for agent: {}", agent_id);
+        
+        // Create agent context
+        let agent_ctx = AgentContext {
+            name: agent_id.clone(),
+            agent_type: agent.agent_type.clone(),
+            namespace: self.context.namespace.clone(),
+            image: format!("kumeo/{}:latest", agent.agent_type.to_string().to_lowercase()),
+            config: serde_json::to_value(agent.config.clone()).unwrap_or_default(),
+            input_topic: workflow.source.as_ref().map(|s| format!("{}", s.topic)),
+            output_topic: workflow.target.as_ref().map(|t| format!("{}", t.topic)),
+            resources: ResourceRequirements {
+                requests: ResourceQuantity {
+                    cpu: "100m".to_string(),
+                    memory: "128Mi".to_string(),
+                },
+                limits: ResourceQuantity {
+                    cpu: "500m".to_string(),
+                    memory: "512Mi".to_string(),
+                },
+            },
         };
         
-        // Extract agent configuration
-        let mut params = HashMap::new();
-        params.insert("agent_id".to_string(), agent_id.clone());
-        params.insert("workflow_name".to_string(), workflow.name.clone());
-        params.insert("language".to_string(), language.to_string());
-        params.insert("index".to_string(), index.to_string());
+        // Add agent to the appropriate context (workflow or subworkflow)
+        if let Some(workflow_ctx) = self.context.workflows.iter_mut()
+            .find(|w| w.name == workflow.name) {
+            workflow_ctx.agents.push(agent_ctx.clone());
+        } else if let Some(subworkflow_ctx) = self.context.subworkflows.iter_mut()
+            .find(|sw| sw.name == workflow.name) {
+            subworkflow_ctx.agents.push(agent_ctx.clone());
+        }
         
-        // Extract agent type
-        params.insert("agent_type".to_string(), format!("{:?}", agent.agent_type));
-        
-        // Render the deployment template
-        let deployment = self.template_manager.render_template("deployment.yaml.tmpl", &params)?;
-        
-        // Write the deployment manifest to a file
-        let deployment_file = output_dir.join(format!("{}-deployment.yaml", agent_id.to_lowercase()));
-        std::fs::write(&deployment_file, deployment)?;
-        
-        // Render the service template if needed
-        let service = self.template_manager.render_template("service.yaml.tmpl", &params)?;
-        
-        // Write the service manifest to a file
-        let service_file = output_dir.join(format!("{}-service.yaml", agent_id.to_lowercase()));
-        std::fs::write(&service_file, service)?;
+        // Create agent directory
+        let agent_dir = output_dir.join(agent_id);
+        std::fs::create_dir_all(&agent_dir)
+            .context("Failed to create agent directory")?;
         
         // Generate ConfigMap for agent configuration
-        self.generate_agent_configmap(agent, workflow, output_dir)?;
+        self.generate_agent_configmap(agent, workflow, &agent_dir)?;
         
-        Ok(deployment_file)
-    }
-    
-    /// Generate Kubernetes manifests for a preprocessor agent
-    fn generate_preprocessor_manifests(&mut self, agent: &Agent, workflow: &Workflow, output_dir: &Path, index: usize) -> Result<PathBuf> {
-        // Similar to generate_agent_manifests but with specific handling for preprocessors
-        self.generate_agent_manifests(agent, workflow, output_dir, index)
-    }
-    
-    /// Generate ConfigMap for agent configuration
-    fn generate_agent_configmap(&mut self, agent: &Agent, workflow: &Workflow, output_dir: &Path) -> Result<PathBuf> {
-        let agent_id = agent.id.as_ref().ok_or_else(|| {
-            TemplateError::Rendering("Agent is missing ID".to_string())
-        })?;
+        // Generate Deployment using template
+        let deployment_path = agent_dir.join("deployment.yaml");
+        let deployment = self.template_manager.render_with_serializable(
+            "agent/deployment.yaml.tera",
+            &agent_ctx
+        )?;
+        std::fs::write(&deployment_path, deployment)
+            .context("Failed to write deployment manifest")?;
         
-        // Extract agent configuration
-        let mut params = HashMap::new();
-        params.insert("agent_id".to_string(), agent_id.clone());
-        params.insert("workflow_name".to_string(), workflow.name.clone());
+        // Generate Service using template
+        let service_path = agent_dir.join("service.yaml");
+        let service = self.template_manager.render_with_serializable(
+            "agent/service.yaml.tera",
+            &agent_ctx
+        )?;
+        std::fs::write(&service_path, service)
+            .context("Failed to write service manifest")?;
         
-        // Add agent config as JSON
-        let config_json = serde_json::to_string_pretty(&agent.config)
-            .unwrap_or_else(|_| "{}".to_string());
-        params.insert("config_json".to_string(), config_json);
+        // Generate kustomization.yaml
+        let kustomization_path = agent_dir.join("kustomization.yaml");
+        let kustomization = self.template_manager.render_with_serializable(
+            "kustomization.yaml.tera",
+            &self.context
+        )?;
+        std::fs::write(&kustomization_path, kustomization)
+            .context("Failed to write kustomization")?;
         
-        // Render the configmap template
-        let configmap = self.template_manager.render_template("configmap.yaml.tmpl", &params)?;
+        info!(
+            agent_id = %agent_id, 
+            path = %agent_dir.display(), 
+            "Successfully generated Kubernetes manifests for agent"
+        );
         
-        // Write the configmap manifest to a file
-        let configmap_file = output_dir.join(format!("{}-configmap.yaml", agent_id.to_lowercase()));
-        std::fs::write(&configmap_file, configmap)?;
-        
-        Ok(configmap_file)
+        Ok(agent_dir)
     }
     
     /// Generate ConfigMaps for workflow context
-    fn generate_context_configmaps(&mut self, context: &Option<crate::ast::Context>, workflow: &Workflow, output_dir: &Path) -> Result<PathBuf> {
-        // Create a configmap for the context items
-        let mut params = HashMap::new();
-        params.insert("workflow_name".to_string(), workflow.name.clone());
+    fn generate_context_configmaps(
+        &mut self, 
+        context: &Option<crate::ast::Context>, 
+        workflow: &Workflow, 
+        output_dir: &Path
+    ) -> Result<PathBuf> {
+        debug!("Generating ConfigMaps for workflow context: {}", workflow.name);
         
-        // Add context as JSON if it exists
-        let context_json = match context {
-            Some(ctx) => serde_json::to_string_pretty(ctx)
-                .unwrap_or_else(|_| "{}".to_string()),
-            None => "{}".to_string()
-        };
-        params.insert("context_json".to_string(), context_json);
+        // Create context for the template
+        let context_ctx = serde_json::json!({
+            "workflow_name": workflow.name,
+            "namespace": self.context.namespace,
+            "context": context.as_ref().map(|c| serde_json::to_value(c)).unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()))
+        });
         
         // Render the context configmap template
-        let configmap = self.template_manager.render_template("context-configmap.yaml.tmpl", &params)?;
+        let configmap = self.template_manager.render_with_serializable(
+            "context/configmap.yaml.tera",
+            &context_ctx
+        )?;
         
         // Write the configmap manifest to a file
         let configmap_file = output_dir.join("context-configmap.yaml");
-        std::fs::write(&configmap_file, configmap)?;
+        std::fs::write(&configmap_file, configmap)
+            .context("Failed to write context ConfigMap")?;
+        
+        debug!(
+            workflow = %workflow.name,
+            path = %configmap_file.display(),
+            "Successfully generated context ConfigMap"
+        );
         
         Ok(configmap_file)
     }
     
     /// Generate kustomization file for a workflow
     fn generate_workflow_kustomization(&mut self, workflow: &Workflow, output_dir: &Path) -> Result<PathBuf> {
-        let mut params = HashMap::new();
-        params.insert("workflow_name".to_string(), workflow.name.clone());
+        debug!("Generating kustomization for workflow: {}", workflow.name);
         
-        // Get a list of all manifest files in the workflow directory
-        let files = std::fs::read_dir(output_dir)?
+        // Get a list of all YAML files in the workflow directory
+        let resource_files = std::fs::read_dir(output_dir)?
             .filter_map(|entry| {
                 if let Ok(entry) = entry {
                     let path = entry.path();
                     if path.extension().map_or(false, |ext| ext == "yaml") {
-                        return Some(path.file_name().unwrap().to_string_lossy().to_string());
+                        return Some(path.file_name()?.to_string_lossy().to_string());
                     }
                 }
                 None
             })
-            .collect::<Vec<String>>()
-            .join("\n  - ");
+            .collect::<Vec<_>>();
         
-        params.insert("resource_files".to_string(), files);
+        // Create context for the template
+        let kustomization_ctx = serde_json::json!({
+            "workflow_name": workflow.name,
+            "namespace": self.context.namespace,
+            "resource_files": resource_files,
+        });
         
         // Render the kustomization template
-        let kustomization = self.template_manager.render_template("kustomization.yaml.tmpl", &params)?;
+        let kustomization = self.template_manager.render_with_serializable(
+            "kustomization.yaml.tera",
+            &kustomization_ctx
+        )?;
         
         // Write the kustomization file
         let kustomization_file = output_dir.join("kustomization.yaml");
-        std::fs::write(&kustomization_file, kustomization)?;
+        std::fs::write(&kustomization_file, kustomization)
+            .context("Failed to write kustomization file")?;
+        
+        debug!(
+            workflow = %workflow.name,
+            path = %kustomization_file.display(),
+            "Successfully generated kustomization file"
+        );
         
         Ok(kustomization_file)
     }
     
     /// Generate kustomization file for a subworkflow
     fn generate_subworkflow_kustomization(&mut self, subworkflow: &Subworkflow, output_dir: &Path) -> Result<PathBuf> {
-        // Similar to generate_workflow_kustomization but for subworkflows
-        let mut params = HashMap::new();
-        params.insert("workflow_name".to_string(), subworkflow.name.clone());
+        debug!("Generating kustomization for subworkflow: {}", subworkflow.name);
         
-        // Get a list of all manifest files in the subworkflow directory
-        let files = std::fs::read_dir(output_dir)?
+        // Get a list of all YAML files in the subworkflow directory
+        let resource_files = std::fs::read_dir(output_dir)?
             .filter_map(|entry| {
                 if let Ok(entry) = entry {
                     let path = entry.path();
                     if path.extension().map_or(false, |ext| ext == "yaml") {
-                        return Some(path.file_name().unwrap().to_string_lossy().to_string());
+                        return Some(path.file_name()?.to_string_lossy().to_string());
                     }
                 }
                 None
             })
-            .collect::<Vec<String>>()
-            .join("\n  - ");
+            .collect::<Vec<_>>();
         
-        params.insert("resource_files".to_string(), files);
+        // Create context for the template
+        let kustomization_ctx = serde_json::json!({
+            "workflow_name": subworkflow.name,
+            "namespace": self.context.namespace,
+            "resource_files": resource_files,
+            "is_subworkflow": true,
+        });
         
         // Render the kustomization template
-        let kustomization = self.template_manager.render_template("kustomization.yaml.tmpl", &params)?;
+        let kustomization = self.template_manager.render_with_serializable(
+            "kustomization.yaml.tera",
+            &kustomization_ctx
+        )?;
         
         // Write the kustomization file
         let kustomization_file = output_dir.join("kustomization.yaml");
-        std::fs::write(&kustomization_file, kustomization)?;
+        std::fs::write(&kustomization_file, kustomization)
+            .context("Failed to write subworkflow kustomization file")?;
+        
+        debug!(
+            subworkflow = %subworkflow.name,
+            path = %kustomization_file.display(),
+            "Successfully generated subworkflow kustomization file"
+        );
         
         Ok(kustomization_file)
     }
     
     /// Generate the root kustomization file for the entire program
     fn generate_kustomization(&mut self, _program: &Program) -> Result<PathBuf> {
-        let mut params = HashMap::new();
+        info!("Generating root kustomization file");
         
-        // Get a list of all directories (workflows and subworkflows)
-        let dirs = std::fs::read_dir(&self.output_dir)?
+        // Get a list of all workflow and subworkflow directories
+        let resources = std::fs::read_dir(&self.output_dir)?
             .filter_map(|entry| {
                 if let Ok(entry) = entry {
                     let path = entry.path();
                     if path.is_dir() {
-                        return Some(path.file_name().unwrap().to_string_lossy().to_string());
+                        return Some(path.file_name()?.to_string_lossy().to_string());
                     }
                 }
                 None
             })
-            .collect::<Vec<String>>();
+            .collect::<Vec<_>>();
         
-        // Add base resources (namespace, NATS)
-        let mut resources = vec![
-            "namespace.yaml".to_string(),
-            "nats.yaml".to_string(),
-        ];
+        // Add NATS resources
+        let mut all_resources = vec!["nats".to_string()];
+        all_resources.extend(resources);
         
-        // Add workflow and subworkflow references
-        for dir in dirs {
-            resources.push(format!("./{}", dir));
-        }
+        // Create context for the template
+        let kustomization_ctx = serde_json::json!({
+            "namespace": self.context.namespace,
+            "project_name": self.context.project_name,
+            "resources": all_resources,
+        });
         
-        params.insert("resource_files".to_string(), resources.join("\n  - "));
+        // Render the root kustomization template
+        let kustomization = self.template_manager.render_with_serializable(
+            "root/kustomization.yaml.tera",
+            &kustomization_ctx
+        )?;
         
-        // Render the kustomization template
-        let kustomization = self.template_manager.render_template("root-kustomization.yaml.tmpl", &params)?;
-        
-        // Write the kustomization file
+        // Write the root kustomization file
         let kustomization_file = self.output_dir.join("kustomization.yaml");
-        std::fs::write(&kustomization_file, kustomization)?;
+        std::fs::write(&kustomization_file, kustomization)
+            .context("Failed to write root kustomization file")?;
+        
+        info!(
+            path = %kustomization_file.display(),
+            "Successfully generated root kustomization file"
+        );
         
         Ok(kustomization_file)
     }

@@ -117,7 +117,13 @@ impl CodeGenerator {
     
     /// Generate code for an agent, selecting the appropriate language based on agent type
     fn generate_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<()> {
-        println!("Generating code for agent: {:?}", agent.id);
+        use tracing::{info, debug};
+        
+        info!("Generating code for agent: {:?}", agent.id);
+        
+        // Log agent configuration
+        debug!("Agent type: {:?}", agent.agent_type);
+        debug!("Agent config: {:?}", agent.config);
         
         match agent.agent_type {
             // Rust is used for these agent types

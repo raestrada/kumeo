@@ -1,12 +1,41 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use crate::ast::{Agent, Workflow};
+use serde::Serialize;
+use anyhow::Context;
+use crate::ast::{Agent, Workflow, AgentType};
 use crate::codegen::template_manager::{TemplateManager, Result, TemplateError};
 use tracing::{debug, info, warn, error, trace, instrument};
+
+/// Context for Python code generation
+#[derive(Debug, Serialize)]
+struct PythonContext {
+    project_name: String,
+    version: String,
+    agents: Vec<AgentContext>,
+    workflows: Vec<WorkflowContext>,
+}
+
+/// Context for agent code generation
+#[derive(Debug, Serialize)]
+struct AgentContext {
+    id: String,
+    agent_type: AgentType,
+    config: serde_json::Value,
+    input_topic: Option<String>,
+    output_topic: Option<String>,
+}
+
+/// Context for workflow code generation
+#[derive(Debug, Serialize)]
+struct WorkflowContext {
+    name: String,
+    agents: Vec<String>,
+}
 
 pub struct PythonGenerator {
     template_manager: TemplateManager,
     output_dir: PathBuf,
+    context: PythonContext,
 }
 
 impl PythonGenerator {
@@ -21,11 +50,20 @@ impl PythonGenerator {
             std::fs::create_dir_all(&output_dir)?;
         }
         
+        // Initialize context with default values
+        let context = PythonContext {
+            project_name: "kumeo_python".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            agents: Vec::new(),
+            workflows: Vec::new(),
+        };
+        
         info!("Python generator initialized");
         
         Ok(Self {
             template_manager,
             output_dir,
+            context,
         })
     }
     
@@ -38,59 +76,41 @@ impl PythonGenerator {
             TemplateError::Rendering("Agent is missing ID".to_string())
         })?;
         
-        // Extract agent configuration
-        let mut params = HashMap::new();
-        params.insert("agent_id".to_string(), agent_id.clone());
-        params.insert("workflow_name".to_string(), workflow.name.clone());
+        // Create agent context
+        let agent_ctx = AgentContext {
+            id: agent_id.clone(),
+            agent_type: agent.agent_type.clone(),
+            config: serde_json::to_value(agent.config.clone()).unwrap_or_default(),
+            input_topic: workflow.source.as_ref().map(|s| self.extract_topic(s)),
+            output_topic: workflow.target.as_ref().map(|t| self.extract_topic(t)),
+        };
         
-        // Find the model_path parameter
-        let model_path = self.get_agent_param(agent, "model_path")
-            .unwrap_or_else(|| {
-                debug!("No model_path specified, using default: model.pkl");
-                "model.pkl".to_string()
-            });
-        debug!(model_path = %model_path, "Using ML model path");
-        params.insert("model_path".to_string(), model_path);
+        // Add agent to context
+        self.context.agents.push(agent_ctx);
         
-        // Extract source and target topics
-        if let Some(source) = &workflow.source {
-            params.insert("input_topic".to_string(), self.extract_topic(source));
-        }
-        
-        if let Some(target) = &workflow.target {
-            params.insert("output_topic".to_string(), self.extract_topic(target));
-        }
-        
-        // Render the template
+        // Render the ML Model agent template
         debug!("Rendering ML Model agent template");
-        let code = self.template_manager.render_template("agents/ml_model.py.tmpl", &params)?;
+        let template_content = self.template_manager.render_with_serializable(
+            "agents/ml_model.py.tera", 
+            &self.context
+        )?;
         
-        // Create the output file
+        // Create the output file path
         let output_file = self.output_dir
-            .join("src")
             .join("agents")
             .join(format!("{}.py", agent_id.to_lowercase()));
         
-        debug!(path = ?output_file.display(), "Creating directory structure for ML Model agent");
-        match std::fs::create_dir_all(output_file.parent().unwrap()) {
-            Ok(_) => {},
-            Err(e) => {
-                error!(error = %e, path = ?output_file.parent().unwrap().display(), "Failed to create directory structure");
-                return Err(TemplateError::Io(e));
-            }
-        }
+        // Ensure the directory exists
+        std::fs::create_dir_all(output_file.parent().unwrap())
+            .context("Failed to create directory structure")?;
         
-        debug!(path = ?output_file.display(), "Writing generated ML Model agent code");
-        match std::fs::write(&output_file, &code) {
-            Ok(_) => {
-                info!(agent_id = %agent_id, path = %output_file.display(), "Successfully generated ML Model agent code");
-                Ok(output_file)
-            },
-            Err(e) => {
-                error!(error = %e, path = %output_file.display(), "Failed to write ML Model agent code");
-                Err(TemplateError::Io(e))
-            }
-        }
+        // Write the generated code
+        std::fs::write(&output_file, &template_content)
+            .context("Failed to write ML Model agent code")?;
+        
+        info!(agent_id = %agent_id, path = %output_file.display(), "Successfully generated ML Model agent code");
+        
+        Ok(output_file)
     }
     
     /// Generate Python code for a Bayesian Network agent
@@ -102,76 +122,85 @@ impl PythonGenerator {
             TemplateError::Rendering("Agent is missing ID".to_string())
         })?;
         
-        // Extract agent configuration
-        let mut params = HashMap::new();
-        params.insert("agent_id".to_string(), agent_id.clone());
-        params.insert("workflow_name".to_string(), workflow.name.clone());
+        // Create agent context
+        let agent_ctx = AgentContext {
+            id: agent_id.clone(),
+            agent_type: agent.agent_type.clone(),
+            config: serde_json::to_value(agent.config.clone()).unwrap_or_default(),
+            input_topic: workflow.source.as_ref().map(|s| self.extract_topic(s)),
+            output_topic: workflow.target.as_ref().map(|t| self.extract_topic(t)),
+        };
         
-        // Find the network_path parameter
-        let network_path = self.get_agent_param(agent, "network_path")
-            .unwrap_or_else(|| "network.bn".to_string());
-        params.insert("network_path".to_string(), network_path);
+        // Add agent to context
+        self.context.agents.push(agent_ctx);
         
-        // Extract source and target topics
-        if let Some(source) = &workflow.source {
-            params.insert("input_topic".to_string(), self.extract_topic(source));
-        }
+        // Render the Bayesian Network agent template
+        debug!("Rendering Bayesian Network agent template");
+        let template_content = self.template_manager.render_with_serializable(
+            "agents/bayesian_network.py.tera", 
+            &self.context
+        )?;
         
-        if let Some(target) = &workflow.target {
-            params.insert("output_topic".to_string(), self.extract_topic(target));
-        }
-        
-        // Render the template
-        let code = self.template_manager.render_template("agents/bayesian_network.py.tmpl", &params)?;
-        
-        // Create the output file
+        // Create the output file path
         let output_file = self.output_dir
-            .join("src")
             .join("agents")
             .join(format!("{}.py", agent_id.to_lowercase()));
         
-        std::fs::create_dir_all(output_file.parent().unwrap())?;
-        std::fs::write(&output_file, code)?;
+        // Ensure the directory exists
+        std::fs::create_dir_all(output_file.parent().unwrap())
+            .context("Failed to create directory structure")?;
+        
+        // Write the generated code
+        std::fs::write(&output_file, &template_content)
+            .context("Failed to write Bayesian Network agent code")?;
+        
+        info!(agent_id = %agent_id, path = %output_file.display(), "Successfully generated Bayesian Network agent code");
         
         Ok(output_file)
     }
     
     /// Generate Python code for a Decision Matrix agent
+    #[instrument(skip(self, agent, workflow), fields(agent_id = ?agent.id, workflow_name = %workflow.name))]
     pub fn generate_decision_matrix_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
+        info!("Generating Python code for Decision Matrix agent");
         let agent_id = agent.id.as_ref().ok_or_else(|| {
+            error!("Agent is missing ID");
             TemplateError::Rendering("Agent is missing ID".to_string())
         })?;
         
-        // Extract agent configuration
-        let mut params = HashMap::new();
-        params.insert("agent_id".to_string(), agent_id.clone());
-        params.insert("workflow_name".to_string(), workflow.name.clone());
+        // Create agent context
+        let agent_ctx = AgentContext {
+            id: agent_id.clone(),
+            agent_type: agent.agent_type.clone(),
+            config: serde_json::to_value(agent.config.clone()).unwrap_or_default(),
+            input_topic: workflow.source.as_ref().map(|s| self.extract_topic(s)),
+            output_topic: workflow.target.as_ref().map(|t| self.extract_topic(t)),
+        };
         
-        // Find the matrix_definition parameter
-        let matrix_def = self.get_agent_param(agent, "matrix_definition")
-            .unwrap_or_else(|| "matrix.dmx".to_string());
-        params.insert("matrix_definition".to_string(), matrix_def);
+        // Add agent to context
+        self.context.agents.push(agent_ctx);
         
-        // Extract source and target topics
-        if let Some(source) = &workflow.source {
-            params.insert("input_topic".to_string(), self.extract_topic(source));
-        }
+        // Render the Decision Matrix agent template
+        debug!("Rendering Decision Matrix agent template");
+        let template_content = self.template_manager.render_with_serializable(
+            "agents/decision_matrix.py.tera", 
+            &self.context
+        )?;
         
-        if let Some(target) = &workflow.target {
-            params.insert("output_topic".to_string(), self.extract_topic(target));
-        }
-        
-        // Render the template
-        let code = self.template_manager.render_template("agents/decision_matrix.py.tmpl", &params)?;
-        
-        // Create the output file
+        // Create the output file path
         let output_file = self.output_dir
-            .join("src")
             .join("agents")
             .join(format!("{}.py", agent_id.to_lowercase()));
         
-        std::fs::create_dir_all(output_file.parent().unwrap())?;
-        std::fs::write(&output_file, code)?;
+        // Ensure the directory exists
+        std::fs::create_dir_all(output_file.parent().unwrap())
+            .context("Failed to create directory structure")?;
+        
+        // Write the generated code
+        std::fs::write(&output_file, &template_content)
+            .context("Failed to write Decision Matrix agent code")?;
+        
+        info!(agent_id = %agent_id, path = %output_file.display(), "Successfully generated Decision Matrix agent code");
         
         Ok(output_file)
     }

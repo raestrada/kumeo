@@ -1,12 +1,42 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use crate::ast::{Agent, Workflow};
+use std::sync::Arc;
+use serde::Serialize;
+use anyhow::Context;
+use crate::ast::{Agent, Workflow, AgentType};
 use crate::codegen::template_manager::{TemplateManager, Result, TemplateError};
 use tracing::{debug, info, warn, error, trace, instrument};
+
+/// Context for Rust code generation
+#[derive(Debug, Serialize)]
+struct RustContext {
+    project_name: String,
+    version: String,
+    agents: Vec<AgentContext>,
+    workflows: Vec<WorkflowContext>,
+}
+
+/// Context for agent code generation
+#[derive(Debug, Serialize)]
+struct AgentContext {
+    id: String,
+    agent_type: AgentType,
+    config: serde_json::Value,
+    input_topic: Option<String>,
+    output_topic: Option<String>,
+}
+
+/// Context for workflow code generation
+#[derive(Debug, Serialize)]
+struct WorkflowContext {
+    name: String,
+    agents: Vec<String>,
+}
 
 pub struct RustGenerator {
     template_manager: TemplateManager,
     output_dir: PathBuf,
+    context: RustContext,
 }
 
 impl RustGenerator {
@@ -21,11 +51,20 @@ impl RustGenerator {
             std::fs::create_dir_all(&output_dir)?;
         }
         
+        // Initialize context with default values
+        let context = RustContext {
+            project_name: "kumeo_agent".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            agents: Vec::new(),
+            workflows: Vec::new(),
+        };
+        
         info!("Rust generator initialized");
         
         Ok(Self {
             template_manager,
             output_dir,
+            context,
         })
     }
     
@@ -38,37 +77,24 @@ impl RustGenerator {
             TemplateError::Rendering("Agent is missing ID".to_string())
         })?;
         
-        // Extract agent configuration
-        let mut params = HashMap::new();
-        params.insert("agent_id".to_string(), agent_id.clone());
-        params.insert("workflow_name".to_string(), workflow.name.clone());
+        // Create agent context
+        let agent_ctx = AgentContext {
+            id: agent_id.clone(),
+            agent_type: agent.agent_type.clone(),
+            config: serde_json::to_value(agent.config.clone()).unwrap_or_default(),
+            input_topic: workflow.source.as_ref().map(|s| self.extract_topic(s)),
+            output_topic: workflow.target.as_ref().map(|t| self.extract_topic(t)),
+        };
         
-        // Find the engine parameter
-        let engine = self.get_agent_param(agent, "engine")
-            .unwrap_or_else(|| {
-                debug!("No engine specified, using default: ollama/llama3");
-                "ollama/llama3".to_string()
-            });
-        debug!(engine = %engine, "Using LLM engine");
-        params.insert("engine".to_string(), engine);
-        
-        // Find the prompt parameter
-        let prompt = self.get_agent_param(agent, "prompt")
-            .unwrap_or_else(|| "".to_string());
-        params.insert("prompt".to_string(), prompt);
-        
-        // Extract source and target topics
-        if let Some(source) = &workflow.source {
-            params.insert("input_topic".to_string(), self.extract_topic(source));
-        }
-        
-        if let Some(target) = &workflow.target {
-            params.insert("output_topic".to_string(), self.extract_topic(target));
-        }
+        // Add agent to context
+        self.context.agents.push(agent_ctx);
         
         // Render the LLM agent template
         debug!("Rendering LLM agent template");
-        let template_content = self.template_manager.render_template("agents/llm.rs.tmpl", &params)?;
+        let template_content = self.template_manager.render_with_serializable(
+            "src/agents/llm_agent.rs.tera", 
+            &self.context
+        )?;
         
         // Create the output file path
         let output_file = self.output_dir
@@ -77,25 +103,15 @@ impl RustGenerator {
             .join(format!("{}.rs", agent_id.to_lowercase()));
             
         debug!(path = ?output_file.display(), "Creating directory structure for LLM agent");
-        match std::fs::create_dir_all(output_file.parent().unwrap()) {
-            Ok(_) => {},
-            Err(e) => {
-                error!(error = %e, path = ?output_file.parent().unwrap().display(), "Failed to create directory structure");
-                return Err(TemplateError::Io(e));
-            }
-        }
+        std::fs::create_dir_all(output_file.parent().unwrap())
+            .context("Failed to create directory structure")?;
         
         debug!(path = %output_file.display(), "Writing generated LLM agent code");
-        match std::fs::write(&output_file, &template_content) {
-            Ok(_) => {
-                info!(agent_id = %agent_id, path = %output_file.display(), "Successfully generated LLM agent code");
-                Ok(output_file)
-            },
-            Err(e) => {
-                error!(error = %e, path = %output_file.display(), "Failed to write LLM agent code");
-                Err(TemplateError::Io(e))
-            }
-        }
+        std::fs::write(&output_file, &template_content)
+            .context("Failed to write LLM agent code")?;
+            
+        info!(agent_id = %agent_id, path = %output_file.display(), "Successfully generated LLM agent code");
+        Ok(output_file)
     }
     
     /// Generate Rust code for a router agent
@@ -107,55 +123,42 @@ impl RustGenerator {
             TemplateError::Rendering("Agent is missing ID".to_string())
         })?;
         
-        // Extract agent configuration
-        let mut params = HashMap::new();
-        params.insert("agent_id".to_string(), agent_id.clone());
-        params.insert("workflow_name".to_string(), workflow.name.clone());
+        // Create agent context
+        let agent_ctx = AgentContext {
+            id: agent_id.clone(),
+            agent_type: agent.agent_type.clone(),
+            config: serde_json::to_value(agent.config.clone()).unwrap_or_default(),
+            input_topic: workflow.source.as_ref().map(|s| self.extract_topic(s)),
+            output_topic: workflow.target.as_ref().map(|t| self.extract_topic(t)),
+        };
         
-        // Find the routing_rules parameter
-        let routing_rules = self.get_agent_param(agent, "routing_rules")
-            .unwrap_or_else(|| "{}".to_string());
-        params.insert("routing_rules".to_string(), routing_rules);
+        // Add agent to context
+        self.context.agents.push(agent_ctx);
         
-        // Extract source and target topics
-        if let Some(source) = &workflow.source {
-            params.insert("input_topic".to_string(), self.extract_topic(source));
-        }
-        
-        if let Some(target) = &workflow.target {
-            params.insert("output_topic".to_string(), self.extract_topic(target));
-        }
-        
-        // Render the template
+        // Render the Router agent template
         debug!("Rendering Router agent template");
-        let code = self.template_manager.render_template("agents/router.rs.tmpl", &params)?;
+        let template_content = self.template_manager.render_with_serializable(
+            "src/agents/router_agent.rs.tera", 
+            &self.context
+        )?;
         
-        // Create the output file
+        // Create the output file path
         let output_file = self.output_dir
             .join("src")
             .join("agents")
             .join(format!("{}.rs", agent_id.to_lowercase()));
         
-        debug!(path = ?output_file.display(), "Creating directory structure for Router agent");
-        match std::fs::create_dir_all(output_file.parent().unwrap()) {
-            Ok(_) => {},
-            Err(e) => {
-                error!(error = %e, path = ?output_file.parent().unwrap().display(), "Failed to create directory structure");
-                return Err(TemplateError::Io(e));
-            }
-        }
+        // Ensure the directory exists
+        std::fs::create_dir_all(output_file.parent().unwrap())
+            .context("Failed to create directory structure")?;
         
-        debug!(path = ?output_file.display(), "Writing generated Router agent code");
-        match std::fs::write(&output_file, &code) {
-            Ok(_) => {
-                info!(agent_id = %agent_id, path = %output_file.display(), "Successfully generated Router agent code");
-                Ok(output_file)
-            },
-            Err(e) => {
-                error!(error = %e, path = %output_file.display(), "Failed to write Router agent code");
-                Err(TemplateError::Io(e))
-            }
-        }
+        // Write the generated code
+        std::fs::write(&output_file, &template_content)
+            .context("Failed to write Router agent code")?;
+        
+        info!(agent_id = %agent_id, path = %output_file.display(), "Successfully generated Router agent code");
+        
+        Ok(output_file)
     }
     
     // Similar methods for other agent types

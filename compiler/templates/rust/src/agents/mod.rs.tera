@@ -1,0 +1,63 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use anyhow::Result;
+use async_trait::async_trait;
+use serde_json::Value;
+
+use crate::utils::runtime_client::RuntimeClient;
+
+// Import agent modules
+{% for agent in agents -%}
+#[cfg(feature = "{{agent|lower}}")]
+mod {{agent|lower}}_agent;
+#[cfg(feature = "{{agent|lower}}")]
+pub use {{agent|lower}}_agent::{{agent}}Agent;
+{% endfor %}
+
+/// Trait that all agents must implement
+#[async_trait]
+pub trait Agent: Send + Sync + 'static {
+    /// Get the agent ID
+    fn id(&self) -> &str;
+    
+    /// Start the agent
+    async fn start(&self) -> Result<()>;
+    
+    /// Handle an incoming message
+    async fn handle_message(&self, topic: &str, payload: &[u8]) -> Result<()>;
+}
+
+/// Registry for all available agents
+pub struct AgentRegistry {
+    client: Arc<RuntimeClient>,
+    agents: HashMap<String, Arc<dyn Agent>>,
+}
+
+impl AgentRegistry {
+    /// Create a new agent registry
+    pub async fn new(socket_path: &str) -> Result<Self> {
+        let client = Arc::new(RuntimeClient::new(socket_path).await?);
+        
+        Ok(Self {
+            client,
+            agents: HashMap::new(),
+        })
+    }
+    
+    /// Register all available agents
+    pub async fn register_all(&mut self) -> Result<()> {
+        {% for agent in agents -%}
+        self.register_{{agent|lower}}_agent().await?;
+        {% endfor %}
+        Ok(())
+    }
+    
+    // Registration methods for each agent type
+    {% for agent in agents -%}
+    async fn register_{{agent|lower}}_agent(&mut self) -> Result<()> {
+        let agent = {{agent}}Agent::new(Arc::clone(&self.client)).await?;
+        self.agents.insert(agent.id().to_string(), Arc::new(agent));
+        Ok(())
+    }
+    {% endfor %}
+}

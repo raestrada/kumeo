@@ -1,0 +1,204 @@
+use std::sync::Arc;
+use anyhow::{Result, Context};
+use async_trait::async_trait;
+use serde_json::{Value, json};
+use tokio_stream::StreamExt;
+use tracing::{info, error, debug};
+
+use crate::utils::runtime_client::RuntimeClient;
+use super::Agent;
+
+#[cfg(feature = "llm")]
+use ollama_rs::Ollama;
+#[cfg(feature = "llm")]
+use ollama_rs::generation::completion::request::GenerationRequest;
+
+/// Configuration for the LLM agent
+#[derive(Debug, Clone)]
+pub struct LLMConfig {
+    pub id: String,
+    pub engine: String,
+    pub prompt_template: String,
+    pub temperature: f32,
+    pub max_tokens: u32,
+    pub input_topic: String,
+    pub output_topic: String,
+}
+
+/// LLM Agent implementation
+pub struct LLMAgent {
+    config: LLMConfig,
+    client: Arc<RuntimeClient>,
+    #[cfg(feature = "llm")]
+    ollama: Ollama,
+}
+
+impl LLMAgent {
+    /// Create a new LLM agent
+    pub async fn new(client: Arc<RuntimeClient>) -> Result<Self> {
+        // In a real implementation, load these from config
+        let config = LLMConfig {
+            id: "{{agent_id}}".to_string(),
+            engine: "{{engine|default(value="llama3")}}".to_string(),
+            prompt_template: r#"{{prompt|default(value="Analyze the following: {{input}}")}}"#.to_string(),
+            temperature: {{temperature|default(value=0.7)}},
+            max_tokens: {{max_tokens|default(value=2048)}},
+            input_topic: "{{input_topic|default(value="llm.input")}}".to_string(),
+            output_topic: "{{output_topic|default(value="llm.output")}}".to_string(),
+        };
+        
+        #[cfg(feature = "llm")]
+        let ollama = Ollama::default();
+        
+        Ok(Self {
+            config,
+            client,
+            #[cfg(feature = "llm")]
+            ollama,
+        })
+    }
+    
+    /// Process a single message
+    async fn process_message(&self, topic: &str, payload: &[u8]) -> Result<()> {
+        debug!("Processing message on topic: {}", topic);
+        
+        // Parse input
+        let input: Value = serde_json::from_slice(payload)
+            .context("Failed to parse input message")?;
+        
+        debug!("Input message: {}", input);
+        
+        // Render prompt
+        let prompt = self.render_prompt(&input)?;
+        debug!("Rendered prompt: {}", prompt);
+        
+        // Generate response
+        let response = self.generate_response(&prompt).await?;
+        debug!("Generated response: {}", response);
+        
+        // Prepare output message
+        let output = json!({
+            "request_id": input.get("id").cloned().unwrap_or_else(|| json!(uuid::Uuid::new_v4().to_string())),
+            "input": input,
+            "response": response,
+            "metadata": {
+                "agent_id": self.config.id,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            }
+        });
+        
+        debug!("Publishing response to: {}", self.config.output_topic);
+        
+        // Publish response
+        self.client
+            .publish(&self.config.output_topic, &serde_json::to_vec(&output)?)
+            .await
+            .context("Failed to publish response")?;
+            
+        info!("Processed message on topic: {}", topic);
+        Ok(())
+    }
+    
+    /// Render the prompt with input data
+    fn render_prompt(&self, input: &Value) -> Result<String> {
+        // Simple template rendering - could be enhanced with a proper templating engine
+        let prompt = self.config.prompt_template
+            .replace("{{input}}", &input.to_string());
+        
+        Ok(prompt)
+    }
+    
+    /// Generate response using the LLM
+    async fn generate_response(&self, prompt: &str) -> Result<String> {
+        #[cfg(feature = "llm")] {
+            let model = self.config.engine.clone();
+            let request = GenerationRequest::new(model, prompt.to_string())
+                .temperature(self.config.temperature as f64)
+                .max_tokens(self.config.max_tokens as usize);
+            
+            let response = self.ollama.generate(request).await?;
+            Ok(response.response)
+        }
+        
+        #[cfg(not(feature = "llm"))] {
+            // Fallback implementation when LLM feature is disabled
+            Ok(format!("LLM feature is disabled. Prompt: {}", prompt))
+        }
+    }
+}
+
+#[async_trait]
+impl Agent for LLMAgent {
+    fn id(&self) -> &str {
+        &self.config.id
+    }
+    
+    async fn start(&self) -> Result<()> {
+        info!("Starting LLM Agent: {}", self.config.id);
+        
+        // Subscribe to input topic
+        info!("Subscribing to topic: {}", self.config.input_topic);
+        let mut stream = self.client.subscribe(&self.config.input_topic).await
+            .context("Failed to subscribe to input topic")?;
+        
+        // Clone what we need for the async block
+        let this = self.clone();
+        
+        // Spawn a task to handle incoming messages
+        tokio::spawn(async move {
+            info!("LLM Agent {} listening for messages...", this.config.id);
+            
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(payload) => {
+                        if let Err(e) = this.process_message(&this.config.input_topic, &payload).await {
+                            error!("Error processing message: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error receiving message: {}", e);
+                        // TODO: Implement reconnection logic
+                        break;
+                    }
+                }
+            }
+            
+            error!("LLM Agent {} message stream ended", this.config.id);
+        });
+        
+        Ok(())
+    }
+    
+    async fn handle_message(&self, topic: &str, payload: &[u8]) -> Result<()> {
+        self.process_message(topic, payload).await
+    }
+}
+
+// Implement Clone for LLMAgent
+impl Clone for LLMAgent {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            client: Arc::clone(&self.client),
+            #[cfg(feature = "llm")]
+            ollama: self.ollama.clone(),
+        }
+    }
+}
+
+// Add serde feature for config
+#[cfg(feature = "config")]
+impl LLMConfig {
+    /// Load configuration from a file
+    pub async fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let config_str = tokio::fs::read_to_string(path).await?;
+        toml::from_str(&config_str).context("Failed to parse config file")
+    }
+    
+    /// Save configuration to a file
+    pub async fn to_file(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
+        let config_str = toml::to_string_pretty(self)?;
+        tokio::fs::write(path, config_str).await?;
+        Ok(())
+    }
+}

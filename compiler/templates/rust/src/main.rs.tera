@@ -1,0 +1,55 @@
+use std::path::Path;
+use std::sync::Arc;
+use anyhow::Result;
+use tokio::signal;
+use tracing::{info, error, Level};
+use tracing_subscriber::FmtSubscriber;
+
+mod agents;
+mod utils;
+
+use agents::AgentRegistry;
+use utils::runtime_client::RuntimeClient;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Initialize logging
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::INFO)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("setting default subscriber failed");
+
+    info!("Starting Kumeo Agent: {{project_name}}");
+    
+    // Path to the runtime socket
+    let socket_path = std::env::var("KUMEO_SOCKET")
+        .unwrap_or_else(|_| "/tmp/kumeo-runtime.sock".to_string());
+    
+    info!("Connecting to runtime at: {}", socket_path);
+    
+    // Initialize runtime client
+    let runtime_client = RuntimeClient::new(Path::new(&socket_path))
+        .await
+        .context("Failed to connect to runtime")?;
+    
+    // Initialize agent registry
+    let mut registry = AgentRegistry::new(runtime_client);
+    
+    // Register all agents
+    registry.register_all().await?;
+    
+    info!("Agent registry initialized, waiting for messages...");
+    
+    // Handle shutdown signals
+    match signal::ctrl_c().await {
+        Ok(()) => {
+            info!("Shutting down...");
+        }
+        Err(err) => {
+            error!("Unable to listen for shutdown signal: {}", err);
+        }
+    }
+    
+    Ok(())
+}
