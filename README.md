@@ -17,7 +17,10 @@ Kumeo (from *kume*, meaning *"together"* in Mapudungun) is a domain-specific lan
 ## 🔍 Key Features  
 - **Declarative Workflows**: Define agent interactions as event-driven flows  
 - **True NoOps Solution**: The language itself handles everything from code generation to deployment - just write your workflow and run it
-- **Multi-Language Code Generation**: Automatically selects the optimal language for each component (Rust for LLMs and basic operations, Python for ML and Bayesian networks)
+- **Multi-Language Code Generation**: Automatically selects the optimal language for each component:
+  - **Rust**: For high-performance, low-latency agents
+  - **Python**: For ML, data science, and rapid development
+  - **Seamless Interop**: Agents in different languages can communicate transparently
 - **Agent Types**: Support for LLMs (Ollama/OpenAI), ML models (scikit-learn, ONNX), Bayesian networks, and human-in-the-loop  
 - **Event Orchestration**: Built on NATS for real-time, distributed communication  
 - **Kubernetes Native**: Auto-generates deployment manifests for scalable infrastructure  
@@ -86,6 +89,115 @@ workflow FraudDetection {
     MLModel("isolation_forest.pkl", input=LLM.output),
     DecisionMatrix("policy.dmx", input=MLModel.output)
   ]
+}
+```
+
+---
+
+## 🛠️ Agent Examples
+
+### Python Agent
+
+Here's a simple example of a Python agent in Kumeo:
+
+```python
+from kumeo_runtime import BaseAgent, RuntimeClient
+
+class GreeterAgent(BaseAgent):
+    async def on_start(self):
+        print(f"{self.agent_id} is starting...")
+        
+    async def on_stop(self):
+        print(f"{self.agent_id} is stopping...")
+        
+    async def on_message(self, message):
+        action = message.get('action')
+        if action == 'greet':
+            name = message.get('name', 'stranger')
+            return {"message": f"Hello, {name}!"}
+        return {"error": "Unknown action"}
+
+# Example usage
+async def main():
+    async with RuntimeClient() as runtime:
+        agent = GreeterAgent("greeter-1", runtime)
+        await agent.start()
+        
+        # Send a message to the agent
+        response = await agent.handle_message({
+            "action": "greet",
+            "name": "Kumeo User"
+        })
+        print(response)  # {"message": "Hello, Kumeo User!"}
+        
+        await agent.stop()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+```
+
+### Rust Agent
+
+Here's the equivalent agent in Rust for high-performance scenarios:
+
+```rust
+use kumeo_runtime::prelude::*;
+use serde_json::{json, Value};
+use async_trait::async_trait;
+
+struct GreeterAgent {
+    agent_id: String,
+}
+
+#[async_trait]
+impl Agent for GreeterAgent {
+    fn id(&self) -> &str {
+        &self.agent_id
+    }
+
+    async fn on_start(&mut self, _runtime: &RuntimeClient) -> Result<(), AgentError> {
+        println!("{} is starting...", self.agent_id);
+        Ok(())
+    }
+
+    async fn on_stop(&mut self) -> Result<(), AgentError> {
+        println!("{} is stopping...", self.agent_id);
+        Ok(())
+    }
+
+    async fn on_message(&mut self, message: Value) -> Result<Value, AgentError> {
+        let action = message.get("action").and_then(|a| a.as_str()).unwrap_or("");
+        
+        match action {
+            "greet" => {
+                let name = message.get("name").and_then(|n| n.as_str()).unwrap_or("stranger");
+                Ok(json!({ "message": format!("Hello, {}!", name) }))
+            }
+            _ => Ok(json!({ "error": "Unknown action" })),
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let runtime = RuntimeClient::new().await?;
+    let mut agent = GreeterAgent {
+        agent_id: "rust-greeter-1".to_string(),
+    };
+    
+    agent.start(&runtime).await?;
+    
+    // Send a message to the agent
+    let response = agent.handle_message(json!({ 
+        "action": "greet",
+        "name": "Rust User" 
+    })).await?;
+    
+    println!("Response: {}", response);
+    
+    agent.stop().await?;
+    Ok(())
 }
 ```
 

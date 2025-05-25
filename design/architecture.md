@@ -101,7 +101,42 @@ NATS serves as the messaging backbone of Kumeo:
 - **JetStream** - Provides persistence and replay capabilities for critical workflows
 - **Observability** - Enables monitoring of message flow and system health
 
-### 5. Kubernetes Integration
+### 5. Multi-language Runtime Support
+
+Kumeo supports multiple programming languages for agent implementation:
+
+#### Python Runtime
+
+- **BaseAgent** - Abstract base class that all Python agents must extend
+- **RuntimeClient** - Handles communication with the Kumeo runtime
+- **Message Processing** - Built-in support for message routing and handling
+- **Lifecycle Management** - Automatic management of agent lifecycle
+
+```python
+class MiAgente(BaseAgent):
+    async def on_start(self):
+        # Initialization code
+        pass
+        
+    async def on_stop(self):
+        # Cleanup code
+        pass
+        
+    async def on_message(self, message):
+        # Handle incoming messages
+        action = message.get('action')
+        if action == 'saludar':
+            return {"mensaje": f"Hola desde {self.agent_id}!"}
+        return {"error": "Acción no soportada"}
+```
+
+#### Rust Runtime (Existing)
+
+- **Native Performance** - For high-performance requirements
+- **Direct Integration** - First-class support in the Kumeo runtime
+- **Safety Guarantees** - Rust's ownership model ensures thread safety
+
+### 6. Kubernetes Integration
 
 Kumeo deploys as a set of Kubernetes resources:
 

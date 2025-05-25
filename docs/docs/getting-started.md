@@ -14,9 +14,24 @@ Thank you for your interest in Kumeo! This project is currently in active develo
 
 Kumeo is being developed as a domain-specific language (DSL) for defining complex workflows where heterogeneous agents collaborate via events. The core components include:
 
-- A Rust-based compiler that will transform Kumeo DSL code into executable Rust and Kubernetes manifests
-- A runtime engine for agent execution and NATS integration
+- A Rust-based compiler that transforms Kumeo DSL code into executable code (Rust/Python) and Kubernetes manifests
+- A multi-language runtime engine for agent execution and NATS integration
+- Support for both Rust (high-performance) and Python (rapid development, ML) agents
 - A Svelte-based visual editor for workflow design
+
+## Language Support
+
+Kumeo supports multiple programming languages for agent development:
+
+### Python (Recommended for ML/Data Science)
+- **Ease of Use**: Simple, readable syntax for rapid development
+- **ML Ecosystem**: Native support for popular ML frameworks (scikit-learn, PyTorch, etc.)
+- **Async/Await**: First-class support for asynchronous operations
+
+### Rust (Recommended for Performance)
+- **High Performance**: Native execution speed with minimal overhead
+- **Memory Safety**: Guaranteed thread safety and memory management
+- **Low Latency**: Ideal for performance-critical components
 
 ## Project Timeline
 

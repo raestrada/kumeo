@@ -24,7 +24,10 @@ Kumeo aims to solve the challenge of connecting different AI and ML components i
 
 - **Declarative Workflows**: Define agent interactions as event-driven flows using a simple, readable syntax
 - **True NoOps Solution**: The language itself handles everything from code generation to deployment - just write your workflow and run it
-- **Multi-Language Code Generation**: Automatically selects the optimal language for each component (Rust for LLMs and basic operations, Python for ML and Bayesian networks)
+- **Multi-Language Runtime**:
+  - **Python**: For rapid development, ML, and data science workloads
+  - **Rust**: For high-performance, low-latency components
+  - **Seamless Interop**: Agents in different languages can communicate transparently
 - **Agent Types**: Support for LLMs (Ollama/OpenAI), ML models (scikit-learn, ONNX), Bayesian networks, and human-in-the-loop
 - **Event Orchestration**: Built on NATS for real-time, distributed communication
 - **Kubernetes Native**: Auto-generates deployment manifests for scalable infrastructure

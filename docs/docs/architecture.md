@@ -102,11 +102,26 @@ To minimize errors in generated code, Kumeo employs a template-based approach:
 
 ### 3. Runtime
 
-The Kumeo runtime is a high-performance Rust application that:
+The Kumeo runtime is a multi-language execution environment with the following capabilities:
 
-- **Manages Agent Lifecycle** - Initializes, monitors, and terminates agents
-- **Handles Events** - Routes messages between agents via NATS
-- **Implements Retry Logic** - Manages failures and ensures workflow resilience
+### Runtime Components
+
+#### Core Runtime (Rust)
+- **High-Performance Foundation** - Built in Rust for maximum performance
+- **Agent Lifecycle Management** - Initializes, monitors, and terminates agents
+- **Event Routing** - Efficient message passing between agents via NATS
+- **Resilience** - Built-in retry logic and failure handling
+
+#### Python Runtime
+- **Rapid Development** - Easy agent development with Python
+- **ML/Data Science** - Native support for ML frameworks (scikit-learn, PyTorch, etc.)
+- **Async/Await** - First-class support for asynchronous operations
+- **Type Hints** - Full type annotation support for better development experience
+
+#### Language Interoperability
+- **Transparent Communication** - Agents in different languages can communicate seamlessly
+- **Unified API** - Consistent programming model across languages
+- **Automatic Serialization** - Built-in serialization of common data types
 - **Provides Observability** - Exposes metrics and logs for monitoring
 
 The runtime is designed to be lightweight, with minimal overhead and maximum throughput. It communicates with the NATS messaging system for event distribution.

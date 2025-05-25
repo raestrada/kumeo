@@ -22,11 +22,17 @@ This document outlines the step-by-step approach to implementing the Kumeo platf
 
 ### 1.3 Runtime Foundations
 
-- [ ] Define runtime core APIs
-- [ ] Implement basic event handling
-- [ ] Create agent abstraction layer
-- [ ] Set up NATS client integration
-- [ ] Develop simple workflow executor
+- [x] Define runtime core APIs
+- [x] Implement basic event handling
+- [x] Create agent abstraction layer
+- [x] Set up NATS client integration
+- [x] Develop simple workflow executor
+- [x] Add Python runtime support
+  - [x] BaseAgent implementation
+  - [x] RuntimeClient for Python
+  - [x] Message serialization/deserialization
+  - [x] Lifecycle management
+  - [x] Error handling and recovery
 
 ## Phase 2: Core Implementation (Months 3-5)
 
