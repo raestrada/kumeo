@@ -1,0 +1,47 @@
+# Default values for MinIO
+minio:
+  # Enable MinIO deployment
+  enabled: true
+  
+  # MinIO image
+  image:
+    repository: minio/minio
+    tag: RELEASE.2023-05-04T21-44-30Z
+    pullPolicy: IfNotPresent
+    
+  # Mode: standalone or distributed
+  mode: distributed
+  
+  # Number of MinIO replicas (for distributed mode)
+  replicas: 4
+  
+  # Default bucket to create
+  defaultBuckets: "kumeo"
+  
+  # Root user credentials (only used for new deployments)
+  auth:
+    rootUser: "minio"
+    rootPassword: "minio123"
+    
+  # Resources for MinIO
+  resources: {}
+  
+  # Persistence configuration
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+    
+  # TLS configuration
+  tls:
+    enabled: false
+    
+  # Metrics configuration
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+      
+  # Network policy
+  networkPolicy:
+    enabled: false

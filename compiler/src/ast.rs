@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use serde::{Serialize, Deserialize};
 
 /// Root node for a Kumeo program
@@ -101,6 +102,24 @@ pub enum AgentType {
     DataNormalizer,
     MissingValueHandler,
     Custom(String),
+}
+
+impl fmt::Display for AgentType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AgentType::LLM => write!(f, "llm"),
+            AgentType::MLModel => write!(f, "mlmodel"),
+            AgentType::BayesianNetwork => write!(f, "bayesian-network"),
+            AgentType::DecisionMatrix => write!(f, "decision-matrix"),
+            AgentType::HumanInLoop => write!(f, "human-in-loop"),
+            AgentType::Router => write!(f, "router"),
+            AgentType::Aggregator => write!(f, "aggregator"),
+            AgentType::RuleEngine => write!(f, "rule-engine"),
+            AgentType::DataNormalizer => write!(f, "data-normalizer"),
+            AgentType::MissingValueHandler => write!(f, "missing-value-handler"),
+            AgentType::Custom(s) => write!(f, "{}", s),
+        }
+    }
 }
 
 /// Argument for agent configuration

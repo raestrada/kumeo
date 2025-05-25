@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use serde::Serialize;
 use anyhow::Context;
+use tera;
 use crate::ast::{Agent, Workflow, AgentType};
 use crate::codegen::template_manager::{TemplateManager, Result, TemplateError};
 use tracing::{debug, info, warn, error, trace, instrument};
@@ -39,6 +40,12 @@ pub struct PythonGenerator {
 }
 
 impl PythonGenerator {
+    /// Helper function to handle agent ID errors
+    fn agent_id_error() -> TemplateError {
+        let msg = "Agent is missing ID".to_string();
+        error!("{}", msg);
+        TemplateError::Rendering(tera::Error::msg(msg))
+    }
     pub fn new<P: AsRef<Path>>(template_root: P, output_dir: P) -> Result<Self> {
         debug!(template_path = ?template_root.as_ref().display(), "Initializing Python generator");
         let template_manager = TemplateManager::new(template_root.as_ref().join("python"))?;
@@ -71,10 +78,7 @@ impl PythonGenerator {
     #[instrument(skip(self, agent, workflow), fields(agent_id = ?agent.id, workflow_name = %workflow.name))]
     pub fn generate_ml_model_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
         info!("Generating Python code for ML Model agent");
-        let agent_id = agent.id.as_ref().ok_or_else(|| {
-            error!("Agent is missing ID");
-            TemplateError::Rendering("Agent is missing ID".to_string())
-        })?;
+        let agent_id = agent.id.as_ref().ok_or_else(Self::agent_id_error)?;
         
         // Create agent context
         let agent_ctx = AgentContext {
@@ -117,10 +121,7 @@ impl PythonGenerator {
     #[instrument(skip(self, agent, workflow), fields(agent_id = ?agent.id, workflow_name = %workflow.name))]
     pub fn generate_bayesian_network_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
         info!("Generating Python code for Bayesian Network agent");
-        let agent_id = agent.id.as_ref().ok_or_else(|| {
-            error!("Agent is missing ID");
-            TemplateError::Rendering("Agent is missing ID".to_string())
-        })?;
+        let agent_id = agent.id.as_ref().ok_or_else(Self::agent_id_error)?;
         
         // Create agent context
         let agent_ctx = AgentContext {
@@ -163,10 +164,7 @@ impl PythonGenerator {
     #[instrument(skip(self, agent, workflow), fields(agent_id = ?agent.id, workflow_name = %workflow.name))]
     pub fn generate_decision_matrix_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
         info!("Generating Python code for Decision Matrix agent");
-        let agent_id = agent.id.as_ref().ok_or_else(|| {
-            error!("Agent is missing ID");
-            TemplateError::Rendering("Agent is missing ID".to_string())
-        })?;
+        let agent_id = agent.id.as_ref().ok_or_else(Self::agent_id_error)?;
         
         // Create agent context
         let agent_ctx = AgentContext {

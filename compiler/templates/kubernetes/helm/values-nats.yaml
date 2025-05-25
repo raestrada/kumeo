@@ -1,0 +1,42 @@
+# Default values for NATS
+nats:
+  # Enable NATS deployment
+  enabled: true
+  
+  # NATS server image
+  image: nats:2.9-alpine
+  
+  # Number of NATS server replicas
+  replicas: 3
+  
+  # Resources for NATS server
+  resources: {}
+  
+  # Configuration for NATS clustering
+  cluster:
+    enabled: true
+    replicas: 3
+    
+  # Authentication configuration
+  auth:
+    enabled: false
+    username: ""
+    password: ""
+    token: ""
+    
+  # TLS configuration
+  tls:
+    enabled: false
+    
+  # JetStream configuration
+  jetstream:
+    enabled: true
+    fileStorage:
+      enabled: true
+      storageDirectory: /data
+      size: 1Gi
+    
+  # Monitoring configuration
+  metrics:
+    enabled: true
+    port: 8222

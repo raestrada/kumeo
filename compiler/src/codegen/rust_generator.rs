@@ -73,8 +73,9 @@ impl RustGenerator {
     pub fn generate_llm_agent(&mut self, agent: &Agent, workflow: &Workflow) -> Result<PathBuf> {
         info!("Generating Rust code for LLM agent");
         let agent_id = agent.id.as_ref().ok_or_else(|| {
-            error!("Agent is missing ID");
-            TemplateError::Rendering("Agent is missing ID".to_string())
+            let msg = "Agent is missing ID".to_string();
+            error!("{}", msg);
+            TemplateError::Rendering(tera::Error::msg("Agent is missing ID".to_string()))
         })?;
         
         // Create agent context
@@ -120,7 +121,7 @@ impl RustGenerator {
         info!("Generating Rust code for Router agent");
         let agent_id = agent.id.as_ref().ok_or_else(|| {
             error!("Agent is missing ID");
-            TemplateError::Rendering("Agent is missing ID".to_string())
+            TemplateError::Rendering(tera::Error::msg("Agent is missing ID".to_string()))
         })?;
         
         // Create agent context

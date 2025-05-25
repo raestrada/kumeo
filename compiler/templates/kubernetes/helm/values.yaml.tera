@@ -1,53 +1,56 @@
-# Default values for {{project_name|default("kumeo-agent")}}.
+# Default values for {{project_name|d}}.
 # This is a YAML-formatted file.
 
-replicaCount: 1
+global:
+  nats:
+    enabled: true
+    external: false
+    url: ""
+    auth:
+      enabled: false
+      username: ""
+      password: ""
+      token: ""
 
-image:
-  repository: {{image_repository|default("ghcr.io/kumeo/agent")}}
-  pullPolicy: IfNotPresent
-  tag: "{{image_tag|default("latest")}}"
+  minio:
+    enabled: true
+    external: false
+    endpoint: ""
+    accessKey: ""
+    secretKey: ""
+    bucket: "kumeo"
+    secure: false
 
-imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
+agent:
+  image:
+    repository: {{image_repository|default("ghcr.io/kumeo/agent")}}
+    tag: "{{image_tag|default("latest")}}"
+    pullPolicy: IfNotPresent
+  
+  resources: {}
+  
+  securityContext: {}
+  
+  podSecurityContext: {}
+  
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
 
-serviceAccount:
-  # Specifies whether a service account should be created
-  create: true
-  # Annotations to add to the service account
-  annotations: {}
-  # The name of the service account to use.
-  # If not set and create is true, a name is generated using the fullname template
-  name: ""
-
-podAnnotations: {}
-
-podSecurityContext: {}
-  # fsGroup: 2000
-
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
+runtime:
+  image:
+    repository: kumeo/runtime
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  resources: {}
+  
+  socketPath: "/tmp/kumeo-runtime.sock"
 
 service:
   type: ClusterIP
   port: 80
-
-resources:
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases the chances of the chart working out of the box
-  # on a wide variety of Kubernetes clusters.
-  limits:
-    cpu: 1000m
-    memory: 1Gi
-  requests:
-    cpu: 100m
-    memory: 128Mi
 
 autoscaling:
   enabled: true
@@ -80,3 +83,17 @@ config:
       enabled: true
       # Add agent-specific configuration here
     {% endfor %}
+
+  # NATS configuration
+  nats:
+    url: "nats://{{nats_host|default("localhost")}}:{{nats_port|default(4222)}}"
+    token: "{{nats_token|default("")}}"
+    username: "{{nats_username|default("")}}"
+    password: "{{nats_password|default("")}}"
+
+  # MinIO configuration
+  minio:
+    endpoint: "http://{{minio_host|default("localhost")}}:{{minio_port|default(9000)}}"
+    accessKey: "{{minio_accessKey|default("")}}"
+    secretKey: "{{minio_secretKey|default("")}}"
+    bucketName: "{{minio_bucketName|default("")}}"

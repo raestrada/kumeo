@@ -1,3 +1,14 @@
+//! Kumeo Compiler
+//! 
+//! This crate provides the core compilation functionality for the Kumeo DSL.
+//! It parses Kumeo source code and generates the corresponding target code.
+//!
+//! # Runtime Integration
+//! The generated code communicates with the Kumeo runtime via Protobuf over Unix sockets
+//! for all runtime operations including resource loading and message passing.
+
+#![warn(missing_docs)]
+
 pub mod ast;
 pub mod codegen;
 pub mod error;

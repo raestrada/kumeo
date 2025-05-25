@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.agent.name }}-config
+data:
+  config.yaml: |
+    agent:
+      id: {{ .Values.agent.id }}
+      name: {{ .Values.agent.name }}
+    
+    # Add any additional configuration here
+    {{- range $key, $value := .Values.config }}
+    {{ $key }}: {{ $value | toYaml | nindent 4 }}
+    {{- end }}

@@ -7,16 +7,17 @@ use tera::{Tera, Context as TeraContext, Value as TeraValue, to_value, from_valu
 use serde::{Serialize, Deserialize};
 use heck::ToSnakeCase;
 use chrono;
+use anyhow::Context as AnyhowContext;
 use crate::{debug, info, error, trace};
 
 /// Helper to convert any serializable type to Tera's Value
-pub fn to_tera_value<T: Serialize>(value: &T) -> Result<TeraValue, tera::Error> {
-    to_value(value).map_err(Into::into)
+pub fn to_tera_value<T: Serialize>(value: &T) -> std::result::Result<TeraValue, serde_json::Error> {
+    to_value(value)
 }
 
 /// Helper to convert from Tera's Value to a concrete type
-pub fn from_tera_value<T: for<'de> Deserialize<'de>>(value: TeraValue) -> Result<T, tera::Error> {
-    from_value(value).map_err(Into::into)
+pub fn from_tera_value<T: for<'de> Deserialize<'de>>(value: TeraValue) -> std::result::Result<T, serde_json::Error> {
+    from_value(value)
 }
 
 #[derive(Error, Debug)]
@@ -29,6 +30,18 @@ pub enum TemplateError {
     Rendering(#[from] tera::Error),
     #[error("Template compilation error: {0}")]
     Compilation(String),
+    #[error("Anyhow error: {0}")]
+    Anyhow(#[from] anyhow::Error),
+    #[error("Rendering error: {0}")]
+    RenderingError(String),
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+}
+
+impl TemplateError {
+    pub fn rendering_error<S: Into<String>>(msg: S) -> Self {
+        TemplateError::RenderingError(msg.into())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, TemplateError>;
@@ -105,15 +118,21 @@ impl TemplateManager {
             context.insert(key, value);
         }
         
+        // Clone the Tera instance to get a mutable reference
+        let mut tera = (*self.tera).clone();
+        
         // Render the template string
-        self.tera.render_str(template, &context)
+        tera.render_str(template, &context)
             .map_err(Into::into)
     }
     
     /// Register custom filters, functions, and testers for Tera
-    fn register_custom_components(tera: &mut Tera) -> Result<()> {
+    fn register_custom_components(tera: &Tera) -> Result<()> {
+        // Clone the Tera instance to get a mutable reference
+        let mut tera = tera.clone();
+        
         // Register custom filters
-        tera.register_filter("to_snake_case", |value, _| {
+        tera.register_filter("to_snake_case", |value: &TeraValue, _: &HashMap<String, TeraValue>| {
             if let TeraValue::String(s) = value {
                 Ok(TeraValue::String(s.to_snake_case()))
             } else {
@@ -122,18 +141,23 @@ impl TemplateManager {
         });
         
         // Register custom functions
-        tera.register_function("now", |_| {
+        tera.register_function("now", |_: &std::collections::HashMap<String, TeraValue>| -> std::result::Result<TeraValue, tera::Error> {
             let now = chrono::Local::now();
             Ok(TeraValue::String(now.to_rfc3339()))
         });
         
         // Register custom testers
-        tera.register_tester("containing", |args| {
-            if args.len() != 2 {
+        tera.register_tester("containing", |params: Option<&TeraValue>, args: &[TeraValue]| {
+            if args.len() != 1 {
                 return Ok(false);
             }
             
-            let (collection, value) = (&args[0], &args[1]);
+            let collection = match params {
+                Some(val) => val,
+                None => return Ok(false),
+            };
+            
+            let value = &args[0];
             
             if let Some(arr) = collection.as_array() {
                 Ok(arr.contains(value))
@@ -162,7 +186,9 @@ impl TemplateManager {
         template_path: &str, 
         context: &T
     ) -> Result<String> {
-        let context_value = to_tera_value(context)?;
+        let context_value = to_tera_value(context)
+            .map_err(TemplateError::from)?;
+            
         let mut tera_context = self.common_context.clone();
         
         if let TeraValue::Object(map) = context_value {
