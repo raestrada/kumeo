@@ -16,6 +16,9 @@ pub enum KumeoError {
     #[error("Semantic error: {0}")]
     SemanticError(String),
     
+    #[error("Semantic errors: {0:?}")]
+    SemanticErrors(Vec<String>),
+    
     #[error("Type error: {0}")]
     TypeError(String),
     
@@ -33,4 +36,34 @@ impl From<std::io::Error> for KumeoError {
     }
 }
 
+// Implementation to convert ParseError to KumeoError
+impl From<crate::parser::error::ParseError> for KumeoError {
+    fn from(err: crate::parser::error::ParseError) -> Self {
+        match err {
+            crate::parser::error::ParseError::PestError(e) => {
+                KumeoError::ParserError {
+                    line: 0, // No tenemos acceso a la línea exacta desde Pest
+                    column: 0, // No tenemos acceso a la columna exacta desde Pest
+                    message: e.to_string(),
+                }
+            }
+            crate::parser::error::ParseError::SemanticError(msg) => {
+                KumeoError::ParserError {
+                    line: 0,
+                    column: 0,
+                    message: msg,
+                }
+            }
+            crate::parser::error::ParseError::Generic(msg) => {
+                KumeoError::ParserError {
+                    line: 0,
+                    column: 0,
+                    message: msg,
+                }
+            }
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, KumeoError>;
+pub type SemanticResult = std::result::Result<(), Vec<String>>;

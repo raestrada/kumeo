@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use tera::Tera;
 
-use crate::ast::Workflow;
+use crate::ast::{Workflow, AgentType};
 use super::template_processor::{process_template_dir, create_base_context};
 
 /// Generate Taskfile and related task configurations
@@ -23,12 +23,19 @@ pub fn generate_taskfiles(
     // Categorize agents by type
     let rust_agents: Vec<_> = workflow.agents
         .iter()
-        .filter(|a| a.agent_type == "llm" || a.agent_type == "router")
+        .filter(|a| matches!(
+            a.agent_type,
+            AgentType::LLM | 
+            AgentType::DataProcessor | 
+            AgentType::Router | 
+            AgentType::DecisionMatrix | 
+            AgentType::HumanReview
+        ))
         .collect();
     
     let python_agents: Vec<_> = workflow.agents
         .iter()
-        .filter(|a| a.agent_type == "ml" || a.agent_type == "bayesian")
+        .filter(|a| matches!(a.agent_type, AgentType::MLModel))
         .collect();
     
     context.insert("rust_agents", &rust_agents);

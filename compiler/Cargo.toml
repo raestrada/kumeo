@@ -6,16 +6,13 @@ description = "Compiler for the Kumeo DSL"
 authors = ["Kumeo Contributors"]
 license = "GPL-3.0-or-later"
 
-[build-dependencies]
-lalrpop = "0.20.0"
-
 [dependencies]
-lalrpop-util = { version = "0.20.0", features = ["lexer"] }
-logos = "0.13.0"      # For lexing
 thiserror = "1.0.40"  # Error handling
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"    # JSON serialization
 serde_yaml = "0.9"    # YAML serialization
+pest = "2.7"          # Parser generator
+pest_derive = "2.7"    # Derive macro for pest
 tempfile = "3.8.0"    # Temporary files for testing
 config = "0.13"       # Configuration management
 tokio = { version = "1.0", features = ["full"] } # Async runtime

@@ -1,337 +1,341 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process;
-use std::str::FromStr;
+//! Punto de entrada principal para el compilador de Kumeo.
 
-use anyhow::{Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
+
+use anyhow::{anyhow, Context, Result};
+use clap::{Parser, Subcommand};
 use kumeo_compiler::{
-    ast::Workflow, 
-    error::KumeoError, 
-    lexer::Lexer, 
+    ast::{self, Agent, Argument, Program},
+    codegen,
+    error::KumeoError,
+    logging::{self, LogFormat},
     parser,
-    LogFormat, 
-    debug, error, info, init, trace,
+    semantic::SemanticAnalyzer,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use tracing_subscriber::EnvFilter;
+use tracing::metadata::LevelFilter;
 
-/// Kumeo Compiler - Compila y valida archivos de definición de flujos de trabajo Kumeo
-#[derive(Debug, Parser)]
-#[command(name = "kumeoc", version, about, long_about = None)]
-struct Cli {
-    /// Nivel de verbosidad (puede usarse varias veces para más detalle, ej: -vvv)
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    verbose: u8,
-
-    /// Formato de salida
-    #[arg(long, value_enum, default_value_t = OutputFormat::Human)]
-    format: OutputFormat,
-
-    /// Subcomandos
-    #[command(subcommand)]
-    command: Commands,
+/// Formatos de salida soportados
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum OutputFormat {
+    /// Formato legible para humanos
+    Human,
+    /// Formato JSON
+    Json,
+    /// Formato YAML
+    Yaml,
 }
 
 /// Comandos disponibles
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Valida un archivo Kumeo sin compilar
+    /// Valida la sintaxis y semántica de un archivo Kumeo
     Check {
-        /// Archivo de entrada (.kumeo)
-        #[arg(short, long)]
-        input: PathBuf,
-    },
-    
-    /// Compila un archivo Kumeo a JSON
-    Build {
-        /// Archivo de entrada (.kumeo)
+        /// Archivo de entrada a validar
         #[arg(short, long)]
         input: PathBuf,
         
-        /// Archivo de salida (opcional, por defecto se usa el nombre del archivo de entrada con extensión .json)
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-        
-        /// Validar el workflow después de compilar
-        #[arg(long, default_value_t = true)]
-        validate: bool,
+        /// Formato de salida
+        #[arg(short, long, value_enum, default_value_t = OutputFormat::Human)]
+        format: OutputFormat,
     },
     
     /// Formatea un archivo Kumeo
-    Fmt {
-        /// Archivo de entrada (.kumeo)
+    Format {
+        /// Archivo de entrada a formatear
         #[arg(short, long)]
         input: PathBuf,
         
-        /// Archivo de salida (opcional, por defecto sobrescribe el archivo de entrada)
+        /// Archivo de salida (opcional, si no se especifica se sobrescribe el archivo de entrada)
         #[arg(short, long)]
         output: Option<PathBuf>,
         
-        /// Verificar el formato sin realizar cambios
+        /// Verificar formato sin modificar el archivo
         #[arg(long)]
         check: bool,
     },
-}
-
-/// Formatos de salida soportados
-#[derive(Debug, Clone, Copy, ValueEnum, Default)]
-enum OutputFormat {
-    /// Salida legible para humanos (por defecto)
-    #[default]
-    Human,
     
-    /// Salida en formato JSON
-    Json,
+    /// Genera código a partir de un archivo Kumeo
+    Generate {
+        /// Archivo de entrada
+        #[arg(short, long)]
+        input: PathBuf,
+        
+        /// Directorio de salida
+        #[arg(short, long, default_value = "./output")]
+        output: PathBuf,
+        
+        /// Validar el archivo antes de generar el código
+        #[arg(long, default_value_t = true)]
+        validate: bool,
+    },
+}
+
+/// Opciones de línea de comandos
+#[derive(Debug, Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    /// Nivel de verbosidad
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
     
-    /// Salida en formato YAML
-    Yaml,
+    /// Formato de los logs
+    #[arg(long, default_value = "auto")]
+    log_format: String,
+    
+    /// Comando a ejecutar
+    #[command(subcommand)]
+    command: Commands,
 }
 
-/// Resultado de la validación
-#[derive(Debug, Serialize, Deserialize)]
-struct ValidationResult {
-    valid: bool,
-    errors: Vec<String>,
-    warnings: Vec<String>,
-}
-
+/// Función principal
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Parsear argumentos de línea de comandos
     let cli = Cli::parse();
     
-    // Configurar logging
-    let log_level = match cli.verbose {
-        0 => "info",
-        1 => "debug",
-        _ => "trace",
-    };
-    
-    let log_format = if std::env::var("KUMEO_JSON_LOGS").is_ok() {
-        LogFormat::Json
-    } else {
-        LogFormat::Human
-    };
-    
-    let _guard = init("kumeo-compiler", log_format, Some(log_level));
-    
-    // Ejecutar el comando correspondiente
-    let result = match cli.command {
-        Commands::Check { input } => check_command(&input, cli.format).await,
-        Commands::Build { input, output, validate } => {
-            build_command(&input, output, validate, cli.format).await
-        },
-        Commands::Fmt { input, output, check } => {
-            fmt_command(&input, output, check, cli.format).await
-        },
-    };
-    
-    // Manejar errores
-    if let Err(e) = result {
-        error!(error = %e, "Command failed");
-        
-        // Mostrar el error en el formato solicitado
-        match cli.format {
-            OutputFormat::Human => {
-                eprintln!("Error: {}", e);
-            },
-            OutputFormat::Json => {
-                let error_json = json!({ "error": e.to_string() });
-                println!("{}", serde_json::to_string_pretty(&error_json)?);
-            },
-            OutputFormat::Yaml => {
-                let error_yaml = serde_yaml::to_string(&json!({ "error": e.to_string() }))?;
-                println!("{}", error_yaml);
-            },
+    // Configurar el nivel de log basado en la verbosidad
+    if cli.verbose > 0 {
+        std::env::set_var("RUST_LOG", "debug");
+        if cli.verbose > 1 {
+            std::env::set_var("RUST_LOG", "trace");
         }
-        
-        process::exit(1);
+    } else {
+        std::env::set_var("RUST_LOG", "info");
     }
     
-    Ok(())
+    // Inicializar el sistema de logging
+    let log_format = match cli.log_format.as_str() {
+        "json" => LogFormat::Json,
+        _ => LogFormat::Human,
+    };
+    logging::init("kumeo-compiler", log_format, None);
+    
+    // Ejecutar el comando correspondiente
+    match cli.command {
+        Commands::Check { input, format } => check_command(&input, format).await,
+        Commands::Format { input, output, check } => format_command(&input, output, check).await,
+        Commands::Generate { input, output, validate } => generate_command(&input, &output, validate).await,
+    }
 }
 
-/// Comando: Validar un archivo Kumeo
-async fn check_command(input: &Path, format: OutputFormat) -> Result<()> {
-    info!("Validating Kumeo file: {}", input.display());
-    
+/// Comando para validar un archivo Kumeo
+async fn check_command(input: &PathBuf, format: OutputFormat) -> Result<()> {
     // Leer el archivo de entrada
-    let content = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read input file: {}", input.display()))?;
+    let content = std::fs::read_to_string(input)
+        .with_context(|| format!("No se pudo leer el archivo: {}", input.display()))?;
     
     // Parsear el contenido
-    let workflow = parser::parse(&content)?;
+    let program = parser::parse(&content)
+        .map_err(|e| KumeoError::ParserError {
+            line: 0,
+            column: 0,
+            message: e.to_string(),
+        })?;
     
-    // Validar el workflow
-    let validation_result = validate_workflow(&workflow);
+    // Validar el programa
+    let mut analyzer = SemanticAnalyzer::new();
+    let validation_result = analyzer.analyze_program(&program);
     
     // Mostrar resultados
     match format {
         OutputFormat::Human => {
-            if validation_result.valid {
-                println!("✅ Workflow '{}' is valid", workflow.name);
-            } else {
-                println!("❌ Workflow '{}' has validation errors:", workflow.name);
-                for error in &validation_result.errors {
-                    println!("  - {}", error);
+            match validation_result {
+                Ok(_) => {
+                    println!("✅ El archivo es válido");
+                    Ok(())
+                }
+                Err(e) => {
+                    println!("❌ Se encontraron errores de validación:");
+                    for error in e.to_string().lines() {
+                        println!("  - {}", error);
+                    }
+                    Err(anyhow!("Validación fallida"))
                 }
             }
-            
-            if !validation_result.warnings.is_empty() {
-                println!("\n⚠️  Warnings:");
-                for warning in &validation_result.warnings {
-                    println!("  - {}", warning);
-                }
-            }
-        },
+        }
         OutputFormat::Json => {
-            let output = json!(validation_result);
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        },
+            let errors = if let Err(e) = &validation_result {
+                e.to_string().lines().map(|s| s.to_string()).collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let result = serde_json::json!({
+                "valid": validation_result.is_ok(),
+                "errors": errors
+            });
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            validation_result.map_err(|e| anyhow!(e))
+        }
         OutputFormat::Yaml => {
-            let output = serde_yaml::to_string(&validation_result)?;
-            println!("{}", output);
-        },
-    }
-    
-    if !validation_result.valid {
-        return Err(KumeoError::ValidationError("Workflow validation failed".to_string()).into());
-    }
-    
-    Ok(())
-}
-
-/// Comando: Compilar un archivo Kumeo
-async fn build_command(
-    input: &Path,
-    output: Option<PathBuf>,
-    validate: bool,
-    format: OutputFormat,
-) -> Result<()> {
-    info!("Compiling Kumeo file: {}", input.display());
-    
-    // Leer el archivo de entrada
-    let content = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read input file: {}", input.display()))?;
-    
-    // Parsear el contenido
-    let workflow = parser::parse(&content)?;
-    
-    // Validar si es necesario
-    if validate {
-        let validation_result = validate_workflow(&workflow);
-        if !validation_result.valid {
-            return Err(KumeoError::ValidationError(
-                "Workflow validation failed".to_string(),
-            ).into());
+            let errors = if let Err(e) = &validation_result {
+                e.to_string().lines().map(|s| s.to_string()).collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let result = serde_yaml::to_string(&serde_json::json!({
+                "valid": validation_result.is_ok(),
+                "errors": errors
+            }))?;
+            println!("{}", result);
+            validation_result.map_err(|e| anyhow!(e))
         }
     }
-    
-    // Determinar el archivo de salida
-    let output_path = output.unwrap_or_else(|| {
-        let mut path = input.to_path_buf();
-        path.set_extension("json");
-        path
-    });
-    
-    // Serializar a JSON
-    let json = match format {
-        OutputFormat::Human | OutputFormat::Json => {
-            serde_json::to_string_pretty(&workflow)?
-        },
-        OutputFormat::Yaml => {
-            serde_yaml::to_string(&workflow)?
-        },
-    };
-    
-    // Escribir el archivo de salida
-    fs::write(&output_path, json)
-        .with_context(|| format!("Failed to write output file: {}", output_path.display()))?;
-    
-    info!("Successfully compiled to: {}", output_path.display());
-    
-    Ok(())
 }
 
-/// Comando: Formatear un archivo Kumeo
-async fn fmt_command(
-    input: &Path,
-    output: Option<PathBuf>,
-    check: bool,
-    format: OutputFormat,
-) -> Result<()> {
-    if check {
-        info!("Checking format of: {}", input.display());
-    } else {
-        info!("Formatting: {}", input.display());
-    }
-    
+/// Comando para formatear un archivo Kumeo
+async fn format_command(input: &PathBuf, output: Option<PathBuf>, check: bool) -> Result<()> {
     // Leer el archivo de entrada
-    let content = fs::read_to_string(input)
-        .with_context(|| format!("Failed to read input file: {}", input.display()))?;
+    let content = std::fs::read_to_string(input)
+        .with_context(|| format!("No se pudo leer el archivo: {}", input.display()))?;
     
-    // Parsear y volver a formatear
-    let workflow = parser::parse(&content)?;
-    let formatted = format_workflow(&workflow);
+    // Parsear el contenido
+    let program = parser::parse(&content)
+        .map_err(|e| KumeoError::ParserError {
+            line: 0,
+            column: 0,
+            message: e.to_string(),
+        })?;
+    
+    // Formatear el programa
+    let formatted = format_program(&program);
     
     // Verificar si hay cambios
     if content.trim() == formatted.trim() {
-        info!("File is already properly formatted");
+        println!("✅ El archivo ya está correctamente formateado");
         return Ok(());
     }
     
-    // Si solo estamos verificando, devolver error si hay cambios
     if check {
-        return Err(KumeoError::FormatError("File is not properly formatted".to_string()).into());
+        println!("❌ El archivo necesita ser formateado");
+        return Err(anyhow!("El archivo necesita ser formateado"));
     }
     
     // Escribir los cambios
-    let output_path = output.as_deref().unwrap_or(input);
-    fs::write(output_path, formatted)
-        .with_context(|| format!("Failed to write output file: {}", output_path.display()))?;
+    let output_path = output.as_ref().unwrap_or(input);
+    std::fs::write(output_path, formatted)
+        .with_context(|| format!("No se pudo escribir en el archivo: {}", output_path.display()))?;
     
-    info!("Successfully formatted: {}", output_path.display());
-    
+    println!("✅ Archivo formateado correctamente: {}", output_path.display());
     Ok(())
 }
 
-/// Validar un workflow
-fn validate_workflow(workflow: &Workflow) -> ValidationResult {
-    let mut errors = Vec::new();
-    let mut warnings = Vec::new();
+/// Comando para generar código a partir de un archivo Kumeo
+async fn generate_command(input: &PathBuf, output: &PathBuf, validate: bool) -> Result<()> {
+    // Leer el archivo de entrada
+    let content = std::fs::read_to_string(input)
+        .with_context(|| format!("No se pudo leer el archivo: {}", input.display()))?;
     
-    // Validar nombre del workflow
-    if workflow.name.trim().is_empty() {
-        errors.push("Workflow name cannot be empty".to_string());
+    // Parsear el contenido
+    let program = parser::parse(&content)
+        .map_err(|e| KumeoError::ParserError {
+            line: 0,
+            column: 0,
+            message: e.to_string(),
+        })?;
+    
+    // Validar el programa si es necesario
+    if validate {
+        let mut analyzer = SemanticAnalyzer::new();
+        analyzer.analyze_program(&program)?;
     }
     
-    // Validar fuente
-    if workflow.source.is_none() {
-        warnings.push("No source specified".to_string());
+    // Crear el directorio de salida si no existe
+    if !output.exists() {
+        std::fs::create_dir_all(output)
+            .with_context(|| format!("No se pudo crear el directorio: {}", output.display()))?;
     }
     
-    // Validar destino
-    if workflow.target.is_none() {
-        warnings.push("No target specified".to_string());
+    // Generar el código
+    // TODO: Handle multiple workflows or select the first one
+    if let Some(workflow) = program.workflows.first() {
+        codegen::generate_workflow(workflow, output)?;
+    } else {
+        return Err(anyhow!("No workflows found in the program"));
     }
     
-    // Validar agentes
-    if workflow.agents.is_empty() {
-        warnings.push("No agents defined".to_string());
+    println!("✅ Código generado correctamente en: {}", output.display());
+    Ok(())
+}
+
+/// Formatea un programa en una cadena de texto
+fn format_program(program: &Program) -> String {
+    let mut result = String::new();
+    
+    // Formatear workflows
+    for workflow in &program.workflows {
+        result.push_str(&format!("workflow {} {{\n", workflow.name));
+        
+        // Agregar fuente si existe
+        if let Some(source) = &workflow.source {
+            result.push_str(&format!("  source: {}\n", format_source(source)));
+        }
+        
+        // Agregar destino si existe
+        if let Some(target) = &workflow.target {
+            result.push_str(&format!("  target: {}\n", format_target(target)));
+        }
+        
+        // Agregar agentes
+        if !workflow.agents.is_empty() {
+            result.push_str("  agents: [\n");
+            for agent in &workflow.agents {
+                result.push_str(&format!("    {}(\n", format_agent(agent)));
+            }
+            result.push_str("  ]\n");
+        }
+        
+        result.push_str("}\n\n");
     }
     
-    ValidationResult {
-        valid: errors.is_empty(),
-        errors,
-        warnings,
+    result
+}
+
+/// Formatea una fuente de datos
+fn format_source(source: &crate::ast::Source) -> String {
+    match source {
+        crate::ast::Source::NATS(topic, options) => {
+            if let Some(opts) = options {
+                format!("NATS(\"{}\", {:?})", topic, opts)
+            } else {
+                format!("NATS(\"{}\")", topic)
+            }
+        }
     }
 }
 
-/// Formatear un workflow como string
-fn format_workflow(workflow: &Workflow) -> String {
-    // TODO: Implementar un formateador bonito para el workflow
-    // Por ahora, simplemente usamos serde_json con indentación
-    serde_json::to_string_pretty(workflow).unwrap_or_else(|_| "Error formatting workflow".to_string())
+/// Formatea un destino de datos
+fn format_target(target: &crate::ast::Target) -> String {
+    match target {
+        crate::ast::Target::NATS(topic, options) => {
+            if let Some(opts) = options {
+                format!("NATS(\"{}\", {:?})", topic, opts)
+            } else {
+                format!("NATS(\"{}\")", topic)
+            }
+        }
+    }
+}
+
+/// Formatea un agente
+fn format_agent(agent: &Agent) -> String {
+    let mut result = String::new();
+    
+    // Agregar ID si existe
+    if let Some(id) = &agent.id {
+        result.push_str(&format!("id: \"{}\",\n", id));
+    }
+    
+    // Agregar configuración específica del agente
+    for arg in &agent.config {
+        match arg {
+            Argument::Named(name, value) => {
+                result.push_str(&format!("    {}: {},\n", name, value));
+            }
+            Argument::Positional(value) => {
+                result.push_str(&format!("    {},\n", value));
+            }
+        }
+    }
+    
+    result.push(')');
+    result
 }

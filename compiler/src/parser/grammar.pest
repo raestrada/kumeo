@@ -1,0 +1,58 @@
+// Kumeo DSL Grammar using Pest
+
+WHITESPACE = _{ "\n" | " " | "\t" }
+COMMENT = _{ "//" ~ (!"\n" ~ ANY)* ~ "\n" }
+
+// Identifiers
+ident = @{ ASCII_ALPHANUMERIC+ }
+
+// Literals
+string = ${ "\"" ~ (!"\"" ~ ANY)* ~ "\"" | "'" ~ (!"'" ~ ANY)* ~ "'" }
+number = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+boolean = { "true" | "false" }
+null = { "null" }
+
+// Value types
+value = _{ string | number | boolean | null | array | object }
+array = { "[" ~ (value ~ ("," ~ value)*)? ~ "]" }
+pair = { ident ~ ":" ~ value }
+object = { "{" ~ (pair ~ ("," ~ pair)*)? ~ "}" }
+
+// Agent types
+agent_type = { 
+    "LLM" | "MLModel" | "DataProcessor" | "Router" | "DecisionMatrix" | "HumanReview"
+}
+
+// Agent definition
+agent = {
+    agent_type ~ "(" ~ 
+    "id" ~ ":" ~ string ~ "," ~
+    ("engine" | "model" | "network_path") ~ ":" ~ string ~ 
+    ("," ~ ident ~ ":" ~ value)* ~ 
+    ")"
+}
+
+// Source and target
+data_source = { "NATS" ~ "(" ~ string ~ ("," ~ object)? ~ ")" }
+data_target = { "NATS" ~ "(" ~ string ~ ("," ~ object)? ~ ")" }
+
+// Workflow definition
+workflow = {
+    "workflow" ~ ident ~ "{" ~
+    ("source" ~ ":" ~ data_source ~ ";")? ~
+    ("target" ~ ":" ~ data_target ~ ";")? ~
+    ("agents" ~ ":" ~ "[" ~ agent ~ ("," ~ agent)* ~ "]" ~ ";")? ~
+    "}"
+}
+
+// Subworkflow definition
+subworkflow = {
+    "subworkflow" ~ ident ~ "{" ~
+    "input" ~ ":" ~ "[" ~ string ~ ("," ~ string)* ~ "]" ~ ";" ~
+    "output" ~ ":" ~ "[" ~ string ~ ("," ~ string)* ~ "]" ~ ";" ~
+    "agents" ~ ":" ~ "[" ~ agent ~ ("," ~ agent)* ~ "]" ~ ";" ~
+    "}"
+}
+
+// Program (root rule)
+program = _{ SOI ~ (workflow | subworkflow)* ~ EOI }
