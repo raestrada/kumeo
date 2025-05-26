@@ -1,0 +1,111 @@
+//! {{agent_name}} Agent implementation for data processing
+
+use crate::config::{{agent_name}}Config;
+use crate::processor::DataProcessor;
+use anyhow::Result;
+use kumeo_runtime::prelude::*;
+use serde_json::Value;
+use std::sync::Arc;
+use tracing::{debug, error, info, warn};
+
+/// {{agent_name}} Agent implementation
+pub struct {{agent_name}}Agent {
+    config: {{agent_name}}Config,
+    processor: DataProcessor,
+    runtime: Arc<RuntimeClient>,
+}
+
+impl {{agent_name}}Agent {
+    /// Create a new instance of the agent
+    pub fn new(config: {{agent_name}}Config, processor: DataProcessor, runtime: Arc<RuntimeClient>) -> Self {
+        Self {
+            config,
+            processor,
+            runtime,
+        }
+    }
+
+    /// Process a message with the data processor
+    pub async fn process_message_data(&self, data: &[u8]) -> Result<Vec<u8>> {
+        // Parse the input data
+        let input: Value = serde_json::from_slice(data)?;
+        
+        // Process the data
+        let result = self.processor.process(input).await?;
+        
+        // Convert back to bytes
+        Ok(serde_json::to_vec(&result)?)
+    }
+}
+
+#[async_trait]
+impl Agent for {{agent_name}}Agent {
+    fn id(&self) -> &str {
+        "{{agent_name | lower}}"
+    }
+    
+    async fn start(&self) -> Result<()> {
+        info!("Starting {{agent_name}} agent");
+        info!("Schema: {:?}", self.config.schema);
+        info!("Rules: {:?}", self.config.rules);
+        Ok(())
+    }
+    
+    async fn stop(&self) -> Result<()> {
+        info!("Stopping {{agent_name}} agent");
+        Ok(())
+    }
+    
+    async fn process_message(&self, msg: Message) -> Result<()> {
+        match self.process_message_data(&msg.payload).await {
+            Ok(processed_data) => {
+                // Publish the processed data to the output topic
+                self.runtime.publish(&self.config.output_topic, processed_data).await?;
+                
+                // If there's a reply_to, send a confirmation
+                if let Some(reply_to) = &msg.reply_to {
+                    let response = serde_json::json!({
+                        "status": "processed",
+                        "schema": self.config.schema,
+                        "rules": self.config.rules,
+                    });
+                    
+                    self.runtime
+                        .publish(reply_to, serde_json::to_vec(&response)?)
+                        .await?;
+                }
+                
+                Ok(())
+            }
+            Err(e) => {
+                error!("Error processing message: {}", e);
+                
+                // Publish error to error topic if configured
+                if let Some(error_topic) = &self.config.error_topic {
+                    let error_msg = serde_json::json!({
+                        "error": e.to_string(),
+                        "original_message": String::from_utf8_lossy(&msg.payload).to_string(),
+                    });
+                    
+                    let _ = self.runtime
+                        .publish(error_topic, serde_json::to_vec(&error_msg)?)
+                        .await;
+                }
+                
+                // Send error response if there's a reply_to
+                if let Some(reply_to) = &msg.reply_to {
+                    let error_response = serde_json::json!({
+                        "status": "error",
+                        "error": e.to_string(),
+                    });
+                    
+                    let _ = self.runtime
+                        .publish(reply_to, serde_json::to_vec(&error_response)?)
+                        .await;
+                }
+                
+                Err(e)
+            }
+        }
+    }
+}

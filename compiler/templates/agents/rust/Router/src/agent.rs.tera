@@ -1,0 +1,174 @@
+//! {{agent_name}} Agent implementation for message routing
+
+use crate::config::{{agent_name}}Config;
+use crate::routes::{Route, RouteAction};
+use anyhow::Result;
+use kumeo_runtime::prelude::*;
+use regex::Regex;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tracing::{debug, error, info, trace, warn};
+use url::Url;
+
+/// {{agent_name}} Agent implementation
+pub struct {{agent_name}}Agent {
+    config: {{agent_name}}Config,
+    routes: Vec<Route>,
+    route_cache: HashMap<String, Regex>,
+    runtime: Arc<RuntimeClient>,
+}
+
+impl {{agent_name}}Agent {
+    /// Create a new instance of the agent
+    pub fn new(config: {{agent_name}}Config, routes: Vec<Route>, runtime: Arc<RuntimeClient>) -> Self {
+        // Pre-compile route patterns for better performance
+        let route_cache = routes
+            .iter()
+            .filter_map(|r| {
+                Regex::new(&r.pattern)
+                    .map(|re| (r.id.clone(), re))
+                    .map_err(|e| {
+                        warn!("Invalid route pattern '{}': {}", r.pattern, e);
+                        e
+                    })
+                    .ok()
+            })
+            .collect();
+
+        Self {
+            config,
+            routes,
+            route_cache,
+            runtime,
+        }
+    }
+
+    /// Route a message based on the configured rules
+    pub async fn route_message(&self, message: &[u8]) -> Result<Vec<RouteAction>> {
+        let message_str = std::str::from_utf8(message)?;
+        let message_json: Value = serde_json::from_slice(message)?;
+        
+        let mut actions = Vec::new();
+        
+        // Try to match against each route
+        for route in &self.routes {
+            if let Some(regex) = self.route_cache.get(&route.id) {
+                if regex.is_match(message_str) || self.matches_conditions(&route.conditions, &message_json)? {
+                    debug!("Matched route: {} - {}", route.id, route.description);
+                    actions.extend(route.actions.clone());
+                    
+                    // Stop after first match if configured to do so
+                    if self.config.stop_after_first_match {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // If no routes matched, use default action
+        if actions.is_empty() {
+            debug!("No routes matched, using default action");
+            actions.push(self.config.default_action.clone());
+        }
+        
+        Ok(actions)
+    }
+    
+    /// Execute routing actions
+    pub async fn execute_actions(&self, actions: Vec<RouteAction>, message: &[u8]) -> Result<()> {
+        for action in actions {
+            match action {
+                RouteAction::Publish { target, .. } => {
+                    self.runtime.publish(&target, message).await?;
+                }
+                RouteAction::Forward { target, .. } => {
+                    // In a real implementation, this would forward to another service
+                    debug!("Forwarding message to: {}", target);
+                    self.runtime.publish(&target, message).await?;
+                }
+                RouteAction::Log { message: log_msg, level } => {
+                    match level.as_str() {
+                        "error" => error!("{}", log_msg),
+                        "warn" => warn!("{}", log_msg),
+                        "info" => info!("{}", log_msg),
+                        "debug" => debug!("{}", log_msg),
+                        "trace" => trace!("{}", log_msg),
+                        _ => info!("{}", log_msg),
+                    }
+                }
+                RouteAction::Transform { script, .. } => {
+                    // In a real implementation, this would apply a transformation
+                    debug!("Applying transformation: {}", script);
+                    // For now, just pass through
+                    return Ok(());
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Check if the message matches the route conditions
+    fn matches_conditions(&self, conditions: &[String], message: &Value) -> Result<bool> {
+        // In a real implementation, this would evaluate the conditions against the message
+        // For now, we'll just check if all conditions are empty (which means no conditions)
+        Ok(conditions.is_empty())
+    }
+}
+
+#[async_trait]
+impl Agent for {{agent_name}}Agent {
+    fn id(&self) -> &str {
+        "{{agent_name | lower}}"
+    }
+    
+    async fn start(&self) -> Result<()> {
+        info!("Starting {{agent_name}} agent with {} routes", self.routes.len());
+        Ok(())
+    }
+    
+    async fn stop(&self) -> Result<()> {
+        info!("Stopping {{agent_name}} agent");
+        Ok(())
+    }
+    
+    async fn process_message(&self, msg: Message) -> Result<()> {
+        match self.route_message(&msg.payload).await {
+            Ok(actions) => {
+                self.execute_actions(actions, &msg.payload).await?;
+                
+                // If there's a reply_to, send a confirmation
+                if let Some(reply_to) = &msg.reply_to {
+                    let response = serde_json::json!({
+                        "status": "routed",
+                        "actions": actions.len(),
+                    });
+                    
+                    self.runtime
+                        .publish(reply_to, serde_json::to_vec(&response)?)
+                        .await?;
+                }
+                
+                Ok(())
+            }
+            Err(e) => {
+                error!("Error routing message: {}", e);
+                
+                // Send error response if there's a reply_to
+                if let Some(reply_to) = &msg.reply_to {
+                    let error_response = serde_json::json!({
+                        "status": "error",
+                        "error": e.to_string(),
+                    });
+                    
+                    let _ = self.runtime
+                        .publish(reply_to, serde_json::to_vec(&error_response)?)
+                        .await;
+                }
+                
+                Err(e)
+            }
+        }
+    }
+}

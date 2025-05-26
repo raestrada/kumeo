@@ -1,0 +1,20 @@
+use std::env;
+use std::fs;
+use std::path::Path;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Generate config file from environment
+    let out_dir = env::var_os("OUT_DIR").unwrap();
+    let dest_path = Path::new(&out_dir).join("config.rs");
+    
+    let config = r#"
+pub const AGENT_CONFIG: &str = r###"{{agent_config | to_json_pretty}}"###;
+"#;
+    
+    fs::write(dest_path, config)?;
+    
+    // Re-run if the template changes
+    println!("cargo:rerun-if-changed=build.rs");
+    
+    Ok(())
+}

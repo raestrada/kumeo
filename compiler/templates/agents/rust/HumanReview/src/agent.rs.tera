@@ -1,0 +1,229 @@
+//! {{agent_name}} Agent implementation for human review workflow
+
+use crate::config::{{agent_name}}Config;
+use crate::review::{ReviewRequest, ReviewResponse, ReviewStatus};
+use anyhow::Result;
+use kumeo_runtime::prelude::*;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tracing::{debug, error, info, warn};
+use uuid::Uuid;
+
+/// {{agent_name}} Agent implementation
+pub struct {{agent_name}}Agent {
+    config: {{agent_name}}Config,
+    runtime: Arc<RuntimeClient>,
+    pending_reviews: Mutex<HashMap<String, ReviewRequest>>,
+}
+
+impl {{agent_name}}Agent {
+    /// Create a new instance of the agent
+    pub fn new(config: {{agent_name}}Config, runtime: Arc<RuntimeClient>) -> Self {
+        Self {
+            config,
+            runtime,
+            pending_reviews: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Submit an item for human review
+    pub async fn submit_for_review(
+        &self,
+        item: Value,
+        context: Option<Value>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> Result<String> {
+        let review_id = Uuid::new_v4().to_string();
+        
+        let request = ReviewRequest {
+            id: review_id.clone(),
+            status: ReviewStatus::Pending,
+            item,
+            context: context.unwrap_or_default(),
+            metadata: metadata.unwrap_or_default(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            reviewers: Vec::new(),
+            required_approvals: self.config.required_approvals,
+            timeout_seconds: self.config.timeout_seconds,
+        };
+
+        // Store the review
+        self.pending_reviews.lock().await.insert(review_id.clone(), request.clone());
+        
+        // Notify reviewers
+        self.notify_reviewers(&review_id, &request).await?;
+        
+        // Start timeout
+        self.schedule_timeout(review_id.clone());
+        
+        Ok(review_id)
+    }
+    
+    /// Submit a review decision
+    pub async fn submit_review(
+        &self,
+        review_id: &str,
+        reviewer: String,
+        decision: ReviewStatus,
+        comments: Option<String>,
+    ) -> Result<ReviewResponse> {
+        let mut reviews = self.pending_reviews.lock().await;
+        
+        if let Some(mut review) = reviews.get_mut(review_id) {
+            // Update review status
+            review.updated_at = chrono::Utc::now();
+            
+            // Add reviewer's decision
+            review.reviewers.push((reviewer, decision.clone(), comments));
+            
+            // Check if we have enough approvals/rejections
+            let (approvals, rejections) = review.count_decisions();
+            
+            let response = if approvals >= review.required_approvals {
+                review.status = ReviewStatus::Approved;
+                ReviewResponse {
+                    review_id: review_id.to_string(),
+                    status: ReviewStatus::Approved,
+                    message: Some("Review approved".to_string()),
+                }
+            } else if rejections > 0 {
+                review.status = ReviewStatus::Rejected;
+                ReviewResponse {
+                    review_id: review_id.to_string(),
+                    status: ReviewStatus::Rejected,
+                    message: Some("Review rejected".to_string()),
+                }
+            } else {
+                ReviewResponse {
+                    review_id: review_id.to_string(),
+                    status: ReviewStatus::Pending,
+                    message: Some("Waiting for more reviews".to_string()),
+                }
+            };
+            
+            // If review is complete, clean up
+            if matches!(response.status, ReviewStatus::Approved | ReviewStatus::Rejected) {
+                reviews.remove(review_id);
+                
+                // Notify about the final decision
+                self.notify_decision(review_id, &response).await?;
+            }
+            
+            Ok(response)
+        } else {
+            Err(anyhow::anyhow!("Review not found: {}", review_id))
+        }
+    }
+    
+    /// Get the status of a review
+    pub async fn get_review(&self, review_id: &str) -> Option<ReviewRequest> {
+        self.pending_reviews.lock().await.get(review_id).cloned()
+    }
+    
+    async fn notify_reviewers(&self, review_id: &str, request: &ReviewRequest) -> Result<()> {
+        // In a real implementation, this would send notifications to reviewers
+        // For now, just log it
+        info!(
+            "Notifying reviewers about review {} ({} required approvals)",
+            review_id, request.required_approvals
+        );
+        
+        // Publish to the notification topic
+        let topic = format!("reviews.{}.pending", review_id);
+        self.runtime
+            .publish(
+                &topic,
+                serde_json::to_vec(&request).unwrap_or_default(),
+            )
+            .await?;
+            
+        Ok(())
+    }
+    
+    async fn notify_decision(&self, review_id: &str, response: &ReviewResponse) -> Result<()> {
+        // Publish the final decision
+        let topic = format!("reviews.{}.completed", review_id);
+        self.runtime
+            .publish(
+                &topic,
+                serde_json::to_vec(&response).unwrap_or_default(),
+            )
+            .await?;
+            
+        Ok(())
+    }
+    
+    fn schedule_timeout(&self, review_id: String) {
+        let config = self.config.clone();
+        let runtime = self.runtime.clone();
+        let pending_reviews = self.pending_reviews.clone();
+        
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(config.timeout_seconds as u64)).await;
+            
+            // Check if review is still pending
+            let mut reviews = pending_reviews.lock().await;
+            if let Some(mut review) = reviews.get_mut(&review_id) {
+                if review.status == ReviewStatus::Pending {
+                    review.status = ReviewStatus::TimedOut;
+                    review.updated_at = chrono::Utc::now();
+                    
+                    // Notify about timeout
+                    let response = ReviewResponse {
+                        review_id: review_id.clone(),
+                        status: ReviewStatus::TimedOut,
+                        message: Some("Review timed out".to_string()),
+                    };
+                    
+                    // Publish the timeout
+                    let topic = format!("reviews.{}.timeout", review_id);
+                    let _ = runtime
+                        .publish(
+                            &topic,
+                            serde_json::to_vec(&response).unwrap_or_default(),
+                        )
+                        .await;
+                    
+                    // Clean up
+                    reviews.remove(&review_id);
+                }
+            }
+        });
+    }
+}
+
+#[async_trait]
+impl Agent for {{agent_name}}Agent {
+    fn id(&self) -> &str {
+        "{{agent_name | lower}}"
+    }
+    
+    async fn start(&self) -> Result<()> {
+        info!("Starting {{agent_name}} agent");
+        Ok(())
+    }
+    
+    async fn stop(&self) -> Result<()> {
+        info!("Stopping {{agent_name}} agent");
+        Ok(())
+    }
+    
+    async fn process_message(&self, msg: Message) -> Result<()> {
+        // Parse the message as a review request or response
+        match serde_json::from_slice::<Value>(&msg.payload) {
+            Ok(value) => {
+                // In a real implementation, route the message to the appropriate handler
+                // For now, just log it
+                info!("Received message: {:?}", value);
+                Ok(())
+            }
+            Err(e) => {
+                error!("Failed to parse message: {}", e);
+                Err(anyhow::anyhow!("Invalid message format"))
+            }
+        }
+    }
+}

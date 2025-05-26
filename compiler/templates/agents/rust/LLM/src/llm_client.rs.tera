@@ -1,0 +1,462 @@
+//! LLM client implementation for the LLM Agent
+
+use crate::config::LLMConfig;
+use anyhow::{anyhow, Context, Result};
+use async_trait::async_trait;
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message as WsMessage};
+use url::Url;
+
+/// Response from the LLM
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LLMResponse {
+    /// The generated text
+    pub text: String,
+    
+    /// The model used
+    pub model: String,
+    
+    /// Number of tokens in the prompt
+    pub prompt_tokens: Option<u32>,
+    
+    /// Number of tokens in the completion
+    pub completion_tokens: Option<u32>,
+    
+    /// Total tokens used
+    pub total_tokens: Option<u32>,
+    
+    /// Additional metadata
+    pub metadata: Value,
+}
+
+/// Trait for LLM clients
+#[async_trait]
+pub trait LLMClient: Send + Sync + 'static {
+    /// Generate a completion for the given prompt
+    async fn generate(&self, prompt: &str, options: Option<Value>) -> Result<LLMResponse>;
+    
+    /// Generate a streaming completion for the given prompt
+    async fn generate_streaming<F>(
+        &self,
+        prompt: &str,
+        options: Option<Value>,
+        callback: F,
+    ) -> Result<()>
+    where
+        F: Fn(Result<LLMResponse>) + Send + 'static;
+}
+
+/// Create a new LLM client based on the configuration
+pub fn create_client(config: &LLMConfig) -> Arc<dyn LLMClient> {
+    match config.provider.to_lowercase().as_str() {
+        "openai" => Arc::new(OpenAIClient::new(config)),
+        "anthropic" => Arc::new(AnthropicClient::new(config)),
+        "local" => Arc::new(LocalLLMClient::new(config)),
+        _ => panic!("Unsupported LLM provider: {}", config.provider),
+    }
+}
+
+/// OpenAI API client
+struct OpenAIClient {
+    config: LLMConfig,
+    client: reqwest::Client,
+}
+
+impl OpenAIClient {
+    fn new(config: &LLMConfig) -> Self {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        
+        if let Some(api_key) = &config.api_key {
+            headers.insert(
+                AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {}", api_key)).unwrap(),
+            );
+        }
+        
+        let client = reqwest::Client::builder()
+            .default_headers(headers)
+            .timeout(std::time::Duration::from_secs(config.timeout_secs))
+            .build()
+            .expect("Failed to create HTTP client");
+        
+        Self {
+            config: config.clone(),
+            client,
+        }
+    }
+    
+    fn get_base_url(&self) -> String {
+        self.config
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_string())
+    }
+}
+
+#[async_trait]
+impl LLMClient for OpenAIClient {
+    async fn generate(&self, prompt: &str, options: Option<Value>) -> Result<LLMResponse> {
+        let url = format!("{}/chat/completions", self.get_base_url());
+        
+        let mut body = json!({
+            "model": self.config.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+            "top_p": self.config.top_p,
+            "frequency_penalty": self.config.frequency_penalty,
+            "presence_penalty": self.config.presence_penalty,
+        });
+        
+        // Merge with any additional options
+        if let Some(mut options) = options {
+            if let Some(obj) = body.as_object_mut() {
+                if let Some(options_obj) = options.as_object_mut() {
+                    for (k, v) in options_obj.drain() {
+                        obj.insert(k, v);
+                    }
+                }
+            }
+        }
+        
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await?;
+            
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(anyhow!("OpenAI API error: {}", error_text));
+        }
+        
+        let response_json: Value = response.json().await?;
+        
+        let text = response_json["choices"]
+            .as_array()
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice["message"]["content"].as_str())
+            .ok_or_else(|| anyhow!("Invalid response format from OpenAI API"))?;
+            
+        let usage = &response_json["usage"];
+        
+        Ok(LLMResponse {
+            text: text.to_string(),
+            model: self.config.model.clone(),
+            prompt_tokens: usage["prompt_tokens"].as_u64().map(|n| n as u32),
+            completion_tokens: usage["completion_tokens"].as_u64().map(|n| n as u32),
+            total_tokens: usage["total_tokens"].as_u64().map(|n| n as u32),
+            metadata: response_json,
+        })
+    }
+    
+    async fn generate_streaming<F>(
+        &self,
+        prompt: &str,
+        options: Option<Value>,
+        callback: F,
+    ) -> Result<()>
+    where
+        F: Fn(Result<LLMResponse>) + Send + 'static,
+    {
+        let url = format!("{}/chat/completions", self.get_base_url());
+        
+        let mut body = json!({
+            "model": self.config.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+            "top_p": self.config.top_p,
+            "frequency_penalty": self.config.frequency_penalty,
+            "presence_penalty": self.config.presence_penalty,
+            "stream": true,
+        });
+        
+        // Merge with any additional options
+        if let Some(mut options) = options {
+            if let Some(obj) = body.as_object_mut() {
+                if let Some(options_obj) = options.as_object_mut() {
+                    for (k, v) in options_obj.drain() {
+                        obj.insert(k, v);
+                    }
+                }
+            }
+        }
+        
+        // In a real implementation, we would set up a WebSocket connection here
+        // and stream the response chunks to the callback
+        // For now, we'll just call the callback once with the full response
+        let response = self.generate(prompt, None).await;
+        callback(response);
+        
+        Ok(())
+    }
+}
+
+/// Anthropic API client
+struct AnthropicClient {
+    config: LLMConfig,
+    client: reqwest::Client,
+}
+
+impl AnthropicClient {
+    fn new(config: &LLMConfig) -> Self {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        headers.insert("x-api-key", HeaderValue::from_str(&config.api_key.as_deref().unwrap_or("")).unwrap());
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        
+        let client = reqwest::Client::builder()
+            .default_headers(headers)
+            .timeout(std::time::Duration::from_secs(config.timeout_secs))
+            .build()
+            .expect("Failed to create HTTP client");
+        
+        Self {
+            config: config.clone(),
+            client,
+        }
+    }
+    
+    fn get_base_url(&self) -> String {
+        self.config
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.anthropic.com/v1".to_string())
+    }
+}
+
+#[async_trait]
+impl LLMClient for AnthropicClient {
+    async fn generate(&self, prompt: &str, options: Option<Value>) -> Result<LLMResponse> {
+        let url = format!("{}/messages", self.get_base_url());
+        
+        let mut body = json!({
+            "model": self.config.model,
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+            "top_p": self.config.top_p,
+            "messages": [{"role": "user", "content": prompt}],
+        });
+        
+        // Merge with any additional options
+        if let Some(mut options) = options {
+            if let Some(obj) = body.as_object_mut() {
+                if let Some(options_obj) = options.as_object_mut() {
+                    for (k, v) in options_obj.drain() {
+                        obj.insert(k, v);
+                    }
+                }
+            }
+        }
+        
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await?;
+            
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(anyhow!("Anthropic API error: {}", error_text));
+        }
+        
+        let response_json: Value = response.json().await?;
+        
+        let text = response_json["content"]
+            .as_array()
+            .and_then(|content| content.get(0))
+            .and_then(|content| content["text"].as_str())
+            .ok_or_else(|| anyhow!("Invalid response format from Anthropic API"))?;
+            
+        let usage = &response_json["usage"];
+        
+        Ok(LLMResponse {
+            text: text.to_string(),
+            model: self.config.model.clone(),
+            prompt_tokens: usage["input_tokens"].as_u64().map(|n| n as u32),
+            completion_tokens: usage["output_tokens"].as_u64().map(|n| n as u32),
+            total_tokens: None, // Anthropic doesn't provide this directly
+            metadata: response_json,
+        })
+    }
+    
+    async fn generate_streaming<F>(
+        &self,
+        _prompt: &str,
+        _options: Option<Value>,
+        _callback: F,
+    ) -> Result<()>
+    where
+        F: Fn(Result<LLMResponse>) + Send + 'static,
+    {
+        // Similar to OpenAI, implement WebSocket streaming here
+        // For now, just pass through to the non-streaming version
+        let response = self.generate(_prompt, _options).await;
+        _callback(response);
+        Ok(())
+    }
+}
+
+/// Local LLM client (for self-hosted models)
+struct LocalLLMClient {
+    config: LLMConfig,
+    client: reqwest::Client,
+}
+
+impl LocalLLMClient {
+    fn new(config: &LLMConfig) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(config.timeout_secs))
+            .build()
+            .expect("Failed to create HTTP client");
+            
+        Self {
+            config: config.clone(),
+            client,
+        }
+    }
+    
+    fn get_base_url(&self) -> String {
+        self.config
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "http://localhost:5000".to_string())
+    }
+}
+
+#[async_trait]
+impl LLMClient for LocalLLMClient {
+    async fn generate(&self, prompt: &str, options: Option<Value>) -> Result<LLMResponse> {
+        let url = format!("{}/v1/completions", self.get_base_url());
+        
+        let mut body = json!({
+            "prompt": prompt,
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+            "top_p": self.config.top_p,
+            "frequency_penalty": self.config.frequency_penalty,
+            "presence_penalty": self.config.presence_penalty,
+        });
+        
+        // Merge with any additional options
+        if let Some(mut options) = options {
+            if let Some(obj) = body.as_object_mut() {
+                if let Some(options_obj) = options.as_object_mut() {
+                    for (k, v) in options_obj.drain() {
+                        obj.insert(k, v);
+                    }
+                }
+            }
+        }
+        
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await?;
+            
+        if !response.status().is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(anyhow!("Local LLM API error: {}", error_text));
+        }
+        
+        let response_json: Value = response.json().await?;
+        
+        let text = response_json["choices"]
+            .as_array()
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice["text"].as_str())
+            .ok_or_else(|| anyhow!("Invalid response format from local LLM API"))?;
+            
+        let usage = response_json["usage"].clone().unwrap_or_else(|| json!({}));
+        
+        Ok(LLMResponse {
+            text: text.to_string(),
+            model: self.config.model.clone(),
+            prompt_tokens: usage["prompt_tokens"].as_u64().map(|n| n as u32),
+            completion_tokens: usage["completion_tokens"].as_u64().map(|n| n as u32),
+            total_tokens: usage["total_tokens"].as_u64().map(|n| n as u32),
+            metadata: response_json,
+        })
+    }
+    
+    async fn generate_streaming<F>(
+        &self,
+        _prompt: &str,
+        _options: Option<Value>,
+        _callback: F,
+    ) -> Result<()>
+    where
+        F: Fn(Result<LLMResponse>) + Send + 'static,
+    {
+        // Similar to other providers, implement WebSocket streaming here
+        // For now, just pass through to the non-streaming version
+        let response = self.generate(_prompt, _options).await;
+        _callback(response);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockito::{mock, Server};
+    use serde_json::json;
+    
+    #[tokio::test]
+    async fn test_openai_client() {
+        let mut server = Server::new();
+        
+        // Mock the OpenAI API response
+        let mock_response = json!({
+            "id": "chatcmpl-123",
+            "object": "chat.completion",
+            "created": 1677652288,
+            "model": "gpt-4",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "This is a test response"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15
+            }
+        });
+        
+        let _m = mock("POST", "/chat/completions")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(mock_response.to_string())
+            .create();
+        
+        let config = LLMConfig {
+            provider: "openai".to_string(),
+            model: "gpt-4".to_string(),
+            base_url: Some(server.url()),
+            ..Default::default()
+        };
+        
+        let client = OpenAIClient::new(&config);
+        let response = client.generate("Test prompt", None).await.unwrap();
+        
+        assert_eq!(response.text, "This is a test response");
+        assert_eq!(response.model, "gpt-4");
+        assert_eq!(response.prompt_tokens, Some(10));
+        assert_eq!(response.completion_tokens, Some(5));
+        assert_eq!(response.total_tokens, Some(15));
+    }
+}

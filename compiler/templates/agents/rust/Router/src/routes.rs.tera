@@ -1,0 +1,208 @@
+//! Route definitions for the Router Agent
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+
+/// A routing rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Route {
+    /// Unique identifier for the route
+    pub id: String,
+    
+    /// Human-readable description
+    pub description: String,
+    
+    /// Pattern to match against message content or metadata
+    pub pattern: String,
+    
+    /// Conditions that must be met for the route to match
+    #[serde(default)]
+    pub conditions: Vec<String>,
+    
+    /// Actions to take when this route matches
+    pub actions: Vec<RouteAction>,
+    
+    /// Priority (higher = evaluated first)
+    #[serde(default = "default_priority")]
+    pub priority: i32,
+    
+    /// Whether this route is enabled
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+/// Default priority for routes
+fn default_priority() -> i32 {
+    0
+}
+
+/// Default enabled state for routes
+fn default_enabled() -> bool {
+    true
+}
+
+/// An action to take when a route matches
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum RouteAction {
+    /// Publish the message to a topic
+    #[serde(rename = "publish")]
+    Publish {
+        /// Target topic or endpoint
+        target: String,
+        
+        /// Optional transformation to apply
+        #[serde(default)]
+        transform: Option<String>,
+    },
+    
+    /// Forward the message to another service
+    #[serde(rename = "forward")]
+    Forward {
+        /// Target URL or service name
+        target: String,
+        
+        /// Optional headers to include
+        #[serde(default)]
+        headers: HashMap<String, String>,
+        
+        /// Timeout in seconds
+        #[serde(default = "default_timeout")]
+        timeout_secs: u64,
+    },
+    
+    /// Log a message
+    #[serde(rename = "log")]
+    Log {
+        /// Message to log
+        message: String,
+        
+        /// Log level (error, warn, info, debug, trace)
+        #[serde(default = "default_log_level")]
+        level: String,
+    },
+    
+    /// Transform the message
+    #[serde(rename = "transform")]
+    Transform {
+        /// Transformation script or template
+        script: String,
+        
+        /// Output target
+        target: String,
+    },
+}
+
+/// Default timeout for forward actions (30 seconds)
+fn default_timeout() -> u64 {
+    30
+}
+
+/// Default log level for log actions
+fn default_log_level() -> String {
+    "info".to_string()
+}
+
+/// Load routes from a file
+pub fn load_routes(path: &str) -> Result<Vec<Route>, Box<dyn std::error::Error>> {
+    let content = fs::read_to_string(path)?;
+    let mut routes: Vec<Route> = serde_json::from_str(&content)?;
+    
+    // Filter out disabled routes and sort by priority (highest first)
+    routes.retain(|r| r.enabled);
+    routes.sort_by(|a, b| b.priority.cmp(&a.priority));
+    
+    Ok(routes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::HashMap;
+    
+    #[test]
+    fn test_deserialize_route() {
+        let json = r#"
+        {
+            "id": "test-route",
+            "description": "Test route",
+            "pattern": ".*test.*",
+            "actions": [
+                {
+                    "type": "publish",
+                    "target": "test.topic"
+                },
+                {
+                    "type": "log",
+                    "message": "Test message"
+                }
+            ]
+        }
+        "#;
+        
+        let route: Route = serde_json::from_str(json).unwrap();
+        assert_eq!(route.id, "test-route");
+        assert_eq!(route.description, "Test route");
+        assert_eq!(route.pattern, ".*test.*");
+        assert_eq!(route.actions.len(), 2);
+        assert!(matches!(
+            &route.actions[0],
+            RouteAction::Publish { target, .. } if target == "test.topic"
+        ));
+        assert!(matches!(
+            &route.actions[1],
+            RouteAction::Log { message, .. } if message == "Test message"
+        ));
+    }
+    
+    #[test]
+    fn test_load_routes() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("routes.json");
+        
+        let routes = vec![
+            Route {
+                id: "route1".to_string(),
+                description: "Test route 1".to_string(),
+                pattern: ".*test1.*".to_string(),
+                conditions: Vec::new(),
+                actions: vec![
+                    RouteAction::Publish {
+                        target: "test.topic1".to_string(),
+                        transform: None,
+                    },
+                ],
+                priority: 1,
+                enabled: true,
+            },
+            Route {
+                id: "route2".to_string(),
+                description: "Test route 2".to_string(),
+                pattern: ".*test2.*".to_string(),
+                conditions: Vec::new(),
+                actions: vec![
+                    RouteAction::Publish {
+                        target: "test.topic2".to_string(),
+                        transform: None,
+                    },
+                ],
+                priority: 2,
+                enabled: false, // This one should be filtered out
+            },
+        ];
+        
+        // Write test routes to file
+        std::fs::write(&file_path, serde_json::to_string_pretty(&routes).unwrap()).unwrap();
+        
+        // Load and verify
+        let loaded_routes = load_routes(file_path.to_str().unwrap()).unwrap();
+        assert_eq!(loaded_routes.len(), 1); // Only one route is enabled
+        assert_eq!(loaded_routes[0].id, "route1");
+        
+        dir.close().unwrap();
+    }
+}

@@ -1,0 +1,32 @@
+//! {{agent_name}} Agent for Kumeo
+
+mod agent;
+mod config;
+mod rules;
+
+use kumeo_runtime::prelude::*;
+use std::sync::Arc;
+
+// Re-export the agent implementation
+pub use agent::{{agent_name}}Agent;
+
+/// Create a new instance of the agent
+pub fn create_agent(runtime: Arc<RuntimeClient>) -> Box<dyn Agent> {
+    let config = config::load_config();
+    let rules = rules::load_rules(&config.rules_path).unwrap_or_default();
+    Box::new({{agent_name}}Agent::new(config, rules, runtime))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kumeo_runtime::prelude::*;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_agent_creation() {
+        let runtime = Arc::new(RuntimeClient::new("test-decision-matrix").await.unwrap());
+        let _agent = create_agent(runtime);
+        // Add your test assertions here
+    }
+}

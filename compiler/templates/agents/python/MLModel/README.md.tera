@@ -1,0 +1,61 @@
+# {{agent_name}} ML Model Agent
+
+This is a machine learning model agent for the Kumeo platform.
+
+## Features
+
+- Loads a pre-trained ML model
+- Processes incoming data
+- Makes predictions using the model
+- Handles model versioning and updates
+- Provides model metrics and monitoring
+
+## Configuration
+
+Create a `config.json` file in the config directory with the following structure:
+
+```json
+{
+    "model_path": "path/to/model",
+    "input_topic": "input.topic",
+    "output_topic": "output.topic",
+    "error_topic": "errors",
+    "batch_size": 32,
+    "max_retries": 3,
+    "log_level": "INFO"
+}
+```
+
+## Environment Variables
+
+- `{{agent_name | upper}}_CONFIG`: JSON string with configuration (overrides config file)
+- `{{agent_name | upper}}_CONFIG_FILE`: Path to config file (default: `config/config.json`)
+- `LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+
+## Development
+
+1. Create a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+2. Install dependencies:
+   ```bash
+   pip install -e ".[dev]"
+   ```
+
+3. Run tests:
+   ```bash
+   pytest
+   ```
+
+4. Format code:
+   ```bash
+   black .
+   isort .
+   ```
+
+## License
+
+MIT

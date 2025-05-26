@@ -1,0 +1,300 @@
+"""ML Model Agent implementation."""
+
+import asyncio
+import json
+import logging
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
+import numpy as np
+import tensorflow as tf  # or import torch if using PyTorch
+from kumeo_runtime import Agent, Message, RuntimeClient
+from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+
+class ModelConfig(BaseModel):
+    """Configuration for the ML model."""
+
+    model_path: str = Field(..., description="Path to the trained model")
+    input_topic: str = Field(..., description="Input topic to subscribe to")
+    output_topic: str = Field(..., description="Output topic to publish predictions")
+    error_topic: str = Field("errors", description="Topic for publishing errors")
+    batch_size: int = Field(32, description="Batch size for inference")
+    max_retries: int = Field(3, description="Maximum number of retries for failed predictions")
+    log_level: str = Field("INFO", description="Logging level")
+
+
+class MLModelAgent(Agent):
+    """Agent for running ML model inference."""
+
+    def __init__(self, config: ModelConfig, runtime: RuntimeClient):
+        """Initialize the ML Model agent.
+        
+        Args:
+            config: Model configuration
+            runtime: Kumeo runtime client
+        """
+        self.config = config
+        self.runtime = runtime
+        self.model = None
+        self._batch_queue = asyncio.Queue()
+        self._batch_processor_task = None
+
+    async def start(self) -> None:
+        """Start the agent and load the model."""
+        logger.info("Starting ML Model agent")
+        
+        # Set up logging
+        logging.basicConfig(level=self.config.log_level)
+        
+        # Load the model
+        try:
+            logger.info(f"Loading model from {self.config.model_path}")
+            self.model = tf.keras.models.load_model(self.config.model_path)  # or torch.load()
+            
+            # Start batch processing task
+            self._batch_processor_task = asyncio.create_task(self._process_batches())
+            
+            logger.info("ML Model agent started successfully")
+        except Exception as e:
+            logger.error(f"Failed to load model: {e}")
+            raise
+
+    async def stop(self) -> None:
+        """Stop the agent and clean up resources."""
+        logger.info("Stopping ML Model agent")
+        
+        # Cancel the batch processing task
+        if self._batch_processor_task:
+            self._batch_processor_task.cancel()
+            try:
+                await self._batch_processor_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Clean up model resources
+        if self.model:
+            # For TensorFlow, no explicit cleanup needed
+            # For PyTorch, you might need to call model.cpu() or other cleanup
+            pass
+        
+        logger.info("ML Model agent stopped")
+
+    async def process_message(self, message: Message) -> None:
+        """Process an incoming message.
+        
+        Args:
+            message: Incoming message with data for prediction
+        """
+        try:
+            # Parse the message payload
+            data = json.loads(message.payload.decode())
+            
+            # Add to batch queue for processing
+            await self._batch_queue.put((data, message.reply_to))
+            
+        except Exception as e:
+            logger.error(f"Error processing message: {e}")
+            await self._publish_error(str(e), message.reply_to)
+
+    async def _process_batches(self) -> None:
+        """Process batches of data for prediction."""
+        batch = []
+        reply_tos = []
+        
+        while True:
+            try:
+                # Wait for the next item with a timeout
+                try:
+                    data, reply_to = await asyncio.wait_for(
+                        self._batch_queue.get(),
+                        timeout=0.1  # Small timeout to process partial batches
+                    )
+                    batch.append(data)
+                    if reply_to:
+                        reply_tos.append(reply_to)
+                except asyncio.TimeoutError:
+                    # Timeout reached, process the current batch if not empty
+                    if not batch:
+                        continue
+                
+                # Process batch if we have enough items or we've timed out
+                if len(batch) >= self.config.batch_size or (
+                    batch and self._batch_queue.empty()
+                ):
+                    if batch:
+                        await self._process_batch(batch, reply_tos)
+                        batch = []
+                        reply_tos = []
+                
+            except asyncio.CancelledError:
+                # Handle cancellation
+                if batch:
+                    await self._process_batch(batch, reply_tos)
+                raise
+            except Exception as e:
+                logger.error(f"Error in batch processing: {e}")
+                # Clear the batch on error to prevent memory leaks
+                batch = []
+                reply_tos = []
+
+    async def _process_batch(
+        self, batch: List[Dict[str, Any]], reply_tos: List[Optional[str]]
+    ) -> None:
+        """Process a batch of data and publish predictions.
+        
+        Args:
+            batch: List of data items for prediction
+            reply_tos: List of reply_to addresses corresponding to each item
+        """
+        if not self.model:
+            await self._publish_error("Model not loaded")
+            return
+        
+        try:
+            # Preprocess the batch
+            processed_batch = self._preprocess_batch(batch)
+            
+            # Make predictions (this is a placeholder - actual implementation will vary)
+            predictions = self.model.predict(processed_batch)
+            
+            # Convert predictions to a serializable format
+            results = self._format_predictions(predictions, batch)
+            
+            # Publish results
+            for i, result in enumerate(results):
+                reply_to = reply_tos[i] if i < len(reply_tos) else None
+                await self._publish_result(result, reply_to)
+            
+        except Exception as e:
+            logger.error(f"Error processing batch: {e}")
+            await self._publish_error(f"Batch processing error: {e}")
+    
+    def _preprocess_batch(self, batch: List[Dict[str, Any]]) -> np.ndarray:
+        """Preprocess a batch of data for the model.
+        
+        Args:
+            batch: List of data items
+            
+        Returns:
+            Numpy array of preprocessed data
+        """
+        # This is a placeholder - implement your own preprocessing logic
+        # For example, you might extract features, normalize, etc.
+        return np.array([item["data"] for item in batch])
+    
+    def _format_predictions(
+        self, predictions: np.ndarray, original_data: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Format model predictions for output.
+        
+        Args:
+            predictions: Raw model predictions
+            original_data: Original input data
+            
+        Returns:
+            List of formatted prediction results
+        """
+        results = []
+        for i, pred in enumerate(predictions):
+            results.append({
+                "prediction": pred.tolist(),
+                "input_id": original_data[i].get("id"),
+                "metadata": original_data[i].get("metadata", {})
+            })
+        return results
+    
+    async def _publish_result(
+        self, result: Dict[str, Any], reply_to: Optional[str] = None
+    ) -> None:
+        """Publish a prediction result.
+        
+        Args:
+            result: Prediction result to publish
+            reply_to: Optional reply-to address
+        """
+        try:
+            payload = json.dumps(result).encode()
+            await self.runtime.publish(self.config.output_topic, payload)
+            
+            # If there's a reply_to, send the result there as well
+            if reply_to:
+                await self.runtime.publish(reply_to, payload)
+                
+        except Exception as e:
+            logger.error(f"Error publishing result: {e}")
+            await self._publish_error(f"Failed to publish result: {e}")
+    
+    async def _publish_error(self, error: str, reply_to: Optional[str] = None) -> None:
+        """Publish an error message.
+        
+        Args:
+            error: Error message
+            reply_to: Optional reply-to address
+        """
+        try:
+            error_msg = {
+                "error": error,
+                "timestamp": str(datetime.utcnow()),
+                "agent": "{{agent_name}}"
+            }
+            payload = json.dumps(error_msg).encode()
+            await self.runtime.publish(self.config.error_topic, payload)
+            
+            # If there's a reply_to, send the error there as well
+            if reply_to:
+                await self.runtime.publish(reply_to, payload)
+                
+        except Exception as e:
+            # If we can't even log the error, at least print it
+            print(f"CRITICAL: Failed to publish error: {e}")
+            print(f"Original error: {error}")
+
+
+def create_agent(runtime: RuntimeClient) -> Agent:
+    """Create a new instance of the ML Model agent.
+    
+    Args:
+        runtime: Kumeo runtime client
+        
+    Returns:
+        Configured ML Model agent instance
+    """
+    # Load configuration
+    config = _load_config()
+    
+    # Create and return the agent
+    return MLModelAgent(config, runtime)
+
+
+def _load_config() -> ModelConfig:
+    """Load the agent configuration.
+    
+    Returns:
+        Loaded configuration
+    """
+    # Try to load from environment variable first
+    config_json = os.environ.get("{{agent_name | upper}}_CONFIG")
+    
+    if config_json:
+        try:
+            return ModelConfig(**json.loads(config_json))
+        except Exception as e:
+            logger.warning(f"Failed to parse config from env: {e}")
+    
+    # Try to load from config file
+    config_path = os.environ.get(
+        "{{agent_name | upper}}_CONFIG_FILE", 
+        "config/config.json"
+    )
+    
+    try:
+        with open(config_path, "r") as f:
+            return ModelConfig(**json.load(f))
+    except Exception as e:
+        logger.error(f"Failed to load config from {config_path}: {e}")
+        raise

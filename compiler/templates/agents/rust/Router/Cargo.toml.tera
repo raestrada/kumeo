@@ -1,0 +1,24 @@
+[package]
+name = "kumeo-agent-{{agent_name | lower}}"
+version = "0.1.0"
+edition = "2021"
+description = "{{description | default(value="Kumeo Router Agent")}}"
+
+[lib]
+name = "{{agent_name | lower}}_agent"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+kumeo-runtime = { path = "../../kumeo-runtime" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "2.0", features = ["serde"] }
+
+[build-dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

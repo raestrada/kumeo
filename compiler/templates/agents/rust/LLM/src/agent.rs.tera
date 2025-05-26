@@ -1,0 +1,297 @@
+//! {{agent_name}} Agent implementation for LLM integration
+
+use crate::config::LLMConfig;
+use crate::llm_client::{LLMClient, LLMResponse};
+use anyhow::{anyhow, Context, Result};
+use async_trait::async_trait;
+use kumeo_runtime::prelude::*;
+use serde_json::{json, Value};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tracing::{debug, error, info, warn};
+
+/// {{agent_name}} Agent implementation
+pub struct {{agent_name}}Agent {
+    /// Configuration for the agent
+    config: LLMConfig,
+    
+    /// LLM client
+    llm_client: Arc<dyn LLMClient>,
+    
+    /// Runtime client for message passing
+    runtime: Arc<RuntimeClient>,
+    
+    /// In-memory conversation history (optional)
+    conversation_history: Mutex<Vec<Value>>,
+}
+
+impl {{agent_name}}Agent {
+    /// Create a new instance of the agent
+    pub fn new(
+        config: LLMConfig,
+        llm_client: Arc<dyn LLMClient>,
+        runtime: Arc<RuntimeClient>,
+    ) -> Self {
+        Self {
+            config,
+            llm_client,
+            runtime,
+            conversation_history: Mutex::new(Vec::new()),
+        }
+    }
+    
+    /// Process a prompt and generate a response
+    pub async fn process_prompt(
+        &self,
+        prompt: &str,
+        options: Option<Value>,
+    ) -> Result<LLMResponse> {
+        info!("Processing prompt with {} model", self.config.model);
+        
+        // Add the user's message to the conversation history
+        self.add_to_history("user", prompt).await;
+        
+        // Get the conversation context if needed
+        let context = self.get_conversation_context().await?;
+        
+        // Prepare the full prompt with context
+        let full_prompt = if !context.is_empty() {
+            format!("{}\n\nUser: {}", context, prompt)
+        } else {
+            prompt.to_string()
+        };
+        
+        // Generate the response
+        let response = self.llm_client.generate(&full_prompt, options).await?;
+        
+        // Add the assistant's response to the conversation history
+        self.add_to_history("assistant", &response.text).await;
+        
+        Ok(response)
+    }
+    
+    /// Add a message to the conversation history
+    async fn add_to_history(&self, role: &str, content: &str) {
+        let mut history = self.conversation_history.lock().await;
+        history.push(json!({
+            "role": role,
+            "content": content,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        }));
+        
+        // Trim history if it gets too large
+        if history.len() > 10 {
+            // Keep only the last 10 messages
+            let keep = history.len() - 10;
+            *history = history.drain(keep..).collect();
+        }
+    }
+    
+    /// Get the conversation context as a formatted string
+    async fn get_conversation_context(&self) -> Result<String> {
+        let history = self.conversation_history.lock().await;
+        
+        let mut context = String::new();
+        
+        for (i, message) in history.iter().enumerate() {
+            let role = message["role"].as_str().unwrap_or("unknown");
+            let content = message["content"].as_str().unwrap_or("");
+            
+            if i > 0 {
+                context.push_str("\n\n");
+            }
+            
+            match role {
+                "user" => context.push_str(&format!("User: {}", content)),
+                "assistant" => context.push_str(&format!("Assistant: {}", content)),
+                "system" => context.push_str(&format!("System: {}", content)),
+                _ => context.push_str(content),
+            }
+        }
+        
+        Ok(context)
+    }
+}
+
+#[async_trait]
+impl Agent for {{agent_name}}Agent {
+    fn id(&self) -> &str {
+        "{{agent_name | lower}}"
+    }
+    
+    async fn start(&self) -> Result<()> {
+        info!("Starting {{agent_name}} agent with {} model", self.config.model);
+        info!("Input topic: {}", self.config.input_topic);
+        info!("Output topic: {}", self.config.output_topic);
+        info!("Error topic: {}", self.config.error_topic);
+        
+        Ok(())
+    }
+    
+    async fn stop(&self) -> Result<()> {
+        info!("Stopping {{agent_name}} agent");
+        Ok(())
+    }
+    
+    async fn process_message(&self, msg: Message) -> Result<()> {
+        // Parse the message payload
+        let payload: Value = match serde_json::from_slice(&msg.payload) {
+            Ok(payload) => payload,
+            Err(e) => {
+                error!("Failed to parse message payload: {}", e);
+                return Err(anyhow!("Invalid message format"));
+            }
+        };
+        
+        // Extract the prompt and options
+        let prompt = payload["prompt"]
+            .as_str()
+            .ok_or_else(|| anyhow!("Missing or invalid 'prompt' field in message"))?;
+            
+        let options = payload.get("options").cloned();
+        
+        // Process the prompt
+        match self.process_prompt(prompt, options).await {
+            Ok(response) => {
+                // Publish the response
+                let response_payload = json!({
+                    "response": response.text,
+                    "model": response.model,
+                    "metadata": response.metadata,
+                });
+                
+                self.runtime
+                    .publish(
+                        &self.config.output_topic,
+                        serde_json::to_vec(&response_payload)?,
+                    )
+                    .await?;
+                
+                // If there's a reply_to, send the response there as well
+                if let Some(reply_to) = &msg.reply_to {
+                    self.runtime
+                        .publish(reply_to, serde_json::to_vec(&response_payload)?)
+                        .await?;
+                }
+                
+                Ok(())
+            }
+            Err(e) => {
+                error!("Error processing prompt: {}", e);
+                
+                // Publish the error
+                let error_payload = json!({
+                    "error": e.to_string(),
+                    "input": payload,
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                });
+                
+                if let Err(e) = self
+                    .runtime
+                    .publish(
+                        &self.config.error_topic,
+                        serde_json::to_vec(&error_payload)?,
+                    )
+                    .await
+                {
+                    error!("Failed to publish error: {}", e);
+                }
+                
+                // If there's a reply_to, send the error there as well
+                if let Some(reply_to) = &msg.reply_to {
+                    if let Err(e) = self
+                        .runtime
+                        .publish(reply_to, serde_json::to_vec(&error_payload)?)
+                        .await
+                    {
+                        error!("Failed to send error to reply_to: {}", e);
+                    }
+                }
+                
+                Err(e)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use kumeo_runtime::prelude::*;
+    use mockall::predicate::*;
+    use serde_json::json;
+    use std::sync::Arc;
+    
+    // Mock LLM client for testing
+    struct MockLLMClient {
+        response: Result<LLMResponse>,
+    }
+    
+    #[async_trait]
+    impl LLMClient for MockLLMClient {
+        async fn generate(&self, _prompt: &str, _options: Option<Value>) -> Result<LLMResponse> {
+            match &self.response {
+                Ok(response) => Ok(response.clone()),
+                Err(e) => Err(anyhow::anyhow!(e.to_string())),
+            }
+        }
+        
+        async fn generate_streaming<F>(
+            &self,
+            _prompt: &str,
+            _options: Option<Value>,
+            _callback: F,
+        ) -> Result<()>
+        where
+            F: Fn(Result<LLMResponse>) + Send + 'static,
+        {
+            Ok(())
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_process_prompt() {
+        // Create a mock LLM client
+        let mock_response = LLMResponse {
+            text: "Test response".to_string(),
+            model: "test-model".to_string(),
+            prompt_tokens: Some(10),
+            completion_tokens: Some(5),
+            total_tokens: Some(15),
+            metadata: json!({}),
+        };
+        
+        let llm_client = Arc::new(MockLLMClient {
+            response: Ok(mock_response),
+        });
+        
+        // Create a mock runtime client
+        let runtime = Arc::new(RuntimeClient::new("test-llm-agent").await.unwrap());
+        
+        // Create the agent
+        let config = LLMConfig {
+            provider: "test".to_string(),
+            model: "test-model".to_string(),
+            input_topic: "test-input".to_string(),
+            output_topic: "test-output".to_string(),
+            error_topic: "test-errors".to_string(),
+            ..Default::default()
+        };
+        
+        let agent = {{agent_name}}Agent::new(config, llm_client, runtime);
+        
+        // Test processing a prompt
+        let response = agent.process_prompt("Test prompt", None).await.unwrap();
+        assert_eq!(response.text, "Test response");
+        assert_eq!(response.model, "test-model");
+        
+        // Test conversation history
+        let history = agent.conversation_history.lock().await;
+        assert_eq!(history.len(), 2); // User message and assistant response
+        assert_eq!(history[0]["role"], "user");
+        assert_eq!(history[0]["content"], "Test prompt");
+        assert_eq!(history[1]["role"], "assistant");
+        assert_eq!(history[1]["content"], "Test response");
+    }
+}

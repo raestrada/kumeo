@@ -1,0 +1,100 @@
+//! Configuration handling for the {{agent_name}} Agent
+
+use serde::{Deserialize, Serialize};
+use std::env;
+use std::fs;
+use std::path::Path;
+
+/// Configuration for the Human Review Agent
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct {{agent_name}}Config {
+    /// Number of approvals required for a review to be considered complete
+    pub required_approvals: u32,
+    
+    /// Timeout in seconds for a review
+    pub timeout_seconds: u64,
+    
+    /// Default reviewers to notify
+    pub default_reviewers: Vec<String>,
+    
+    /// Whether to require all reviewers to approve
+    pub require_all_reviewers: bool,
+    
+    /// Whether to allow self-approval
+    pub allow_self_approval: bool,
+}
+
+/// Load the agent configuration
+pub fn load_config() -> {{agent_name}}Config {
+    // Try to load from environment variable first
+    if let Ok(config_str) = env::var("{{agent_name | upper}}_CONFIG") {
+        if let Ok(config) = serde_json::from_str(&config_str) {
+            return config;
+        }
+    }
+    
+    // Try to load from config file
+    let config_path = env::var("{{agent_name | upper}}_CONFIG_FILE")
+        .unwrap_or_else(|_| "config/{{agent_name | lower}}.json".to_string());
+    
+    if Path::new(&config_path).exists() {
+        if let Ok(contents) = fs::read_to_string(&config_path) {
+            if let Ok(config) = serde_json::from_str(&contents) {
+                return config;
+            }
+        }
+    }
+    
+    // Fall back to defaults
+    {{agent_name}}Config {
+        required_approvals: 1,
+        timeout_seconds: 3600, // 1 hour
+        default_reviewers: Vec::new(),
+        require_all_reviewers: false,
+        allow_self_approval: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use tempfile::tempdir;
+    use std::fs::File;
+    use std::io::Write;
+
+    #[test]
+    fn test_load_default_config() {
+        env::remove_var("{{agent_name | upper}}_CONFIG");
+        env::remove_var("{{agent_name | upper}}_CONFIG_FILE");
+        
+        let config = load_config();
+        assert_eq!(config.required_approvals, 1);
+        assert_eq!(config.timeout_seconds, 3600);
+        assert!(config.default_reviewers.is_empty());
+        assert!(!config.require_all_reviewers);
+        assert!(!config.allow_self_approval);
+    }
+    
+    #[test]
+    fn test_load_config_from_env() {
+        let test_config = r#"{
+            "required_approvals": 2,
+            "timeout_seconds": 7200,
+            "default_reviewers": ["user1", "user2"],
+            "require_all_reviewers": true,
+            "allow_self_approval": true
+        }"#;
+        
+        env::set_var("{{agent_name | upper}}_CONFIG", test_config);
+        
+        let config = load_config();
+        assert_eq!(config.required_approvals, 2);
+        assert_eq!(config.timeout_seconds, 7200);
+        assert_eq!(config.default_reviewers, vec!["user1", "user2"]);
+        assert!(config.require_all_reviewers);
+        assert!(config.allow_self_approval);
+        
+        env::remove_var("{{agent_name | upper}}_CONFIG");
+    }
+}

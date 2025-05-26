@@ -1,0 +1,3 @@
+"""{{agent_name}} ML Model Agent for Kumeo."""
+
+__version__ = "0.1.0"

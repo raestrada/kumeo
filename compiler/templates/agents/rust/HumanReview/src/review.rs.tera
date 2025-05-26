@@ -1,0 +1,129 @@
+//! Review-related types and functions for the Human Review Agent
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+
+/// Status of a review
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewStatus {
+    /// Review is pending
+    Pending,
+    
+    /// Review has been approved
+    Approved,
+    
+    /// Review has been rejected
+    Rejected,
+    
+    /// Review has timed out
+    TimedOut,
+}
+
+/// A review request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewRequest {
+    /// Unique identifier for the review
+    pub id: String,
+    
+    /// Current status of the review
+    pub status: ReviewStatus,
+    
+    /// The item being reviewed
+    pub item: Value,
+    
+    /// Additional context for the review
+    pub context: Value,
+    
+    /// Additional metadata
+    pub metadata: HashMap<String, String>,
+    
+    /// When the review was created
+    pub created_at: DateTime<Utc>,
+    
+    /// When the review was last updated
+    pub updated_at: DateTime<Utc>,
+    
+    /// List of reviewers and their decisions
+    pub reviewers: Vec<(String, ReviewStatus, Option<String>)>,
+    
+    /// Number of approvals required
+    pub required_approvals: u32,
+    
+    /// Timeout in seconds
+    pub timeout_seconds: u64,
+}
+
+/// Response from a review
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewResponse {
+    /// ID of the review
+    pub review_id: String,
+    
+    /// Status of the review
+    pub status: ReviewStatus,
+    
+    /// Optional message
+    pub message: Option<String>,
+}
+
+impl ReviewRequest {
+    /// Count the number of approvals and rejections
+    pub fn count_decisions(&self) -> (u32, u32) {
+        let mut approvals = 0;
+        let mut rejections = 0;
+        
+        for (_, decision, _) in &self.reviewers {
+            match decision {
+                ReviewStatus::Approved => approvals += 1,
+                ReviewStatus::Rejected => rejections += 1,
+                _ => {}
+            }
+        }
+        
+        (approvals, rejections)
+    }
+    
+    /// Check if the review is complete
+    pub fn is_complete(&self) -> bool {
+        matches!(self.status, ReviewStatus::Approved | ReviewStatus::Rejected | ReviewStatus::TimedOut)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    
+    #[test]
+    fn test_count_decisions() {
+        let mut review = ReviewRequest {
+            id: "test".to_string(),
+            status: ReviewStatus::Pending,
+            item: json!({}),
+            context: json!({}),
+            metadata: HashMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            reviewers: vec![
+                ("user1".to_string(), ReviewStatus::Approved, None),
+                ("user2".to_string(), ReviewStatus::Rejected, None),
+                ("user3".to_string(), ReviewStatus::Approved, None),
+            ],
+            required_approvals: 2,
+            timeout_seconds: 3600,
+        };
+        
+        let (approvals, rejections) = review.count_decisions();
+        assert_eq!(approvals, 2);
+        assert_eq!(rejections, 1);
+        
+        // Test is_complete
+        assert!(!review.is_complete());
+        
+        review.status = ReviewStatus::Approved;
+        assert!(review.is_complete());
+    }
+}

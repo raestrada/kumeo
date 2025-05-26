@@ -1,0 +1,57 @@
+//! Configuration handling for the {{agent_name}} Agent
+
+use serde::{Deserialize, Serialize};
+use std::env;
+use std::fs;
+use std::path::Path;
+
+use super::agent::{{agent_name}}Config;
+
+/// Load the agent configuration
+pub fn load_config() -> {{agent_name}}Config {
+    // Try to load from environment variable first
+    if let Ok(config_str) = env::var("{{agent_name | upper}}_CONFIG") {
+        if let Ok(config) = serde_json::from_str(&config_str) {
+            return config;
+        }
+    }
+    
+    // Try to load from config file
+    let config_path = env::var("{{agent_name | upper}}_CONFIG_FILE")
+        .unwrap_or_else(|_| "config/{{agent_name | lower}}.json".to_string());
+    
+    if Path::new(&config_path).exists() {
+        if let Ok(contents) = fs::read_to_string(&config_path) {
+            if let Ok(config) = serde_json::from_str(&contents) {
+                return config;
+            }
+        }
+    }
+    
+    // Fall back to defaults
+    {{agent_name}}Config {
+        rules_path: "config/rules.json".to_string(),
+        default_decision: "unknown".to_string(),
+        stop_after_first_match: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use tempfile::tempdir;
+    use std::fs::File;
+    use std::io::Write;
+
+    #[test]
+    fn test_load_default_config() {
+        env::remove_var("{{agent_name | upper}}_CONFIG");
+        env::remove_var("{{agent_name | upper}}_CONFIG_FILE");
+        
+        let config = load_config();
+        assert_eq!(config.rules_path, "config/rules.json");
+        assert_eq!(config.default_decision, "unknown");
+        assert!(config.stop_after_first_match);
+    }
+}

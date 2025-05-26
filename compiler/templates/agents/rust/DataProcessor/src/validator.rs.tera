@@ -1,0 +1,153 @@
+//! Validation logic for the {{agent_name}} Agent
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use thiserror::Error;
+
+/// Validation error type
+#[derive(Debug, Error)]
+pub enum ValidationError {
+    /// Schema validation failed
+    #[error("Schema validation failed: {0}")]
+    SchemaValidation(String),
+    
+    /// Field validation failed
+    #[error("Field validation failed for '{field}': {reason}")]
+    FieldValidation {
+        /// The field that failed validation
+        field: String,
+        /// The reason for the failure
+        reason: String,
+    },
+    
+    /// Required field is missing
+    #[error("Missing required field: {0}")]
+    MissingField(String),
+    
+    /// Invalid field type
+    #[error("Invalid type for field '{field}': expected {expected}, got {actual}")]
+    InvalidType {
+        /// The field with invalid type
+        field: String,
+        /// Expected type
+        expected: String,
+        /// Actual type
+        actual: String,
+    },
+    
+    /// Custom validation error
+    #[error("Validation error: {0}")]
+    Custom(String),
+}
+
+/// Validation rules
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ValidationRules {
+    /// Field-specific validation rules
+    pub fields: HashMap<String, FieldRule>,
+    
+    /// Global validation rules
+    pub global: Vec<GlobalRule>,
+}
+
+/// Field validation rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FieldRule {
+    /// Whether the field is required
+    #[serde(default)]
+    pub required: bool,
+    
+    /// Expected data type
+    #[serde(rename = "type")]
+    pub field_type: Option<String>,
+    
+    /// Minimum length for strings/arrays
+    pub min_length: Option<usize>,
+    
+    /// Maximum length for strings/arrays
+    pub max_length: Option<usize>,
+    
+    /// Regular expression pattern for string validation
+    pub pattern: Option<String>,
+    
+    /// Allowed values for the field
+    #[serde(default)]
+    pub allowed_values: Vec<Value>,
+    
+    /// Custom validation function (as a string to be evaluated)
+    pub custom_validator: Option<String>,
+}
+
+/// Global validation rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GlobalRule {
+    /// All of the nested rules must pass
+    All(Vec<GlobalRule>),
+    
+    /// At least one of the nested rules must pass
+    Any(Vec<GlobalRule>),
+    
+    /// The nested rule must not pass
+    Not(Box<GlobalRule>),
+    
+    /// Custom validation function (as a string to be evaluated)
+    Custom(String),
+}
+
+impl ValidationRules {
+    /// Create a new empty set of validation rules
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
+    /// Add a field validation rule
+    pub fn with_field(mut self, field: &str, rule: FieldRule) -> Self {
+        self.fields.insert(field.to_string(), rule);
+        self
+    }
+    
+    /// Add a global validation rule
+    pub fn with_global_rule(mut self, rule: GlobalRule) -> Self {
+        self.global.push(rule);
+        self
+    }
+    
+    /// Validate a value against these rules
+    pub fn validate(&self, value: &Value) -> Result<(), ValidationError> {
+        // In a real implementation, you would validate the value against the rules
+        // This is a placeholder that always succeeds
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    
+    #[test]
+    fn test_validation_rules() {
+        let rules = ValidationRules::new()
+            .with_field("name", FieldRule {
+                required: true,
+                field_type: Some("string".to_string()),
+                min_length: Some(1),
+                max_length: Some(100),
+                pattern: None,
+                allowed_values: vec![],
+                custom_validator: None,
+            });
+        
+        // Test valid input
+        let value = json!({ "name": "Test" });
+        assert!(rules.validate(&value).is_ok());
+        
+        // Test missing required field
+        let value = json!({});
+        assert!(matches!(
+            rules.validate(&value),
+            Err(ValidationError::MissingField(_))
+        ));
+    }
+}

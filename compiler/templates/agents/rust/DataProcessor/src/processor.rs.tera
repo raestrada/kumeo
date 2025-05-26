@@ -1,0 +1,122 @@
+//! Data processing logic for the {{agent_name}} Agent
+
+use crate::validator::{ValidationError, ValidationRules};
+use anyhow::{Context, Result};
+use serde_json::Value;
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+use tracing::{debug, error, info, warn};
+
+/// Data processor implementation
+pub struct DataProcessor {
+    /// Validation rules
+    rules: ValidationRules,
+    
+    /// Schema definition
+    schema: Value,
+    
+    /// Configuration
+    config: super::config::{{agent_name}}Config,
+}
+
+impl DataProcessor {
+    /// Create a new data processor
+    pub fn new(config: super::config::{{agent_name}}Config) -> Self {
+        // In a real implementation, you would load the schema and rules here
+        // For now, we'll use empty/default values
+        Self {
+            rules: ValidationRules::default(),
+            schema: serde_json::json!({}),
+            config,
+        }
+    }
+    
+    /// Process the input data
+    pub async fn process(&self, input: Value) -> Result<Value> {
+        // 1. Validate the input
+        if self.config.validate {
+            self.validate(&input)?;
+        }
+        
+        // 2. Process the data (placeholder for actual processing logic)
+        let mut processed = self.transform(input).await?;
+        
+        // 3. Normalize the output if needed
+        if self.config.normalize {
+            processed = self.normalize(processed).await?;
+        }
+        
+        Ok(processed)
+    }
+    
+    /// Validate the input data against the schema and rules
+    fn validate(&self, input: &Value) -> Result<(), ValidationError> {
+        // In a real implementation, you would validate against the schema and rules
+        // This is a placeholder that always succeeds
+        debug!("Validating input data");
+        Ok(())
+    }
+    
+    /// Transform the input data
+    async fn transform(&self, input: Value) -> Result<Value> {
+        // In a real implementation, you would apply transformations here
+        // This is a placeholder that returns the input as-is
+        debug!("Transforming data");
+        Ok(input)
+    }
+    
+    /// Normalize the output data
+    async fn normalize(&self, input: Value) -> Result<Value> {
+        // In a real implementation, you would normalize the data here
+        // This could include:
+        // - Standardizing date/time formats
+        // - Converting units
+        // - Renaming fields
+        // - Removing unnecessary fields
+        debug!("Normalizing data");
+        Ok(input)
+    }
+    
+    /// Load schema from file
+    fn load_schema(path: &str) -> Result<Value> {
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("Failed to read schema file: {}", path))?;
+        
+        serde_json::from_str(&content)
+            .with_context(|| format!("Failed to parse schema file: {}", path))
+    }
+    
+    /// Load validation rules from file
+    fn load_rules(path: &str) -> Result<ValidationRules> {
+        // In a real implementation, you would load the rules from the file
+        // For now, return default rules
+        Ok(ValidationRules::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    
+    #[tokio::test]
+    async fn test_process_data() {
+        let config = super::super::config::{{agent_name}}Config {
+            schema: "".to_string(),
+            rules: "".to_string(),
+            output_topic: "test".to_string(),
+            error_topic: None,
+            validate: false,
+            normalize: false,
+            max_message_size: 1024,
+        };
+        
+        let processor = DataProcessor::new(config);
+        
+        let input = json!({"test": "data"});
+        let result = processor.process(input.clone()).await.unwrap();
+        
+        assert_eq!(result, input);
+    }
+}

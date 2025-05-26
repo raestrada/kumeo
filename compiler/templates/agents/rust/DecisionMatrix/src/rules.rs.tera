@@ -1,0 +1,172 @@
+//! Rule evaluation for the {{agent_name}} Agent
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::fs;
+use std::path::Path;
+
+/// A rule that can be evaluated against input data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rule {
+    /// Unique identifier for the rule
+    pub id: String,
+    
+    /// Human-readable description
+    pub description: Option<String>,
+    
+    /// Priority (higher = evaluated first)
+    pub priority: i32,
+    
+    /// Conditions that must all be true for the rule to match
+    pub conditions: Vec<Condition>,
+    
+    /// The decision to return if the rule matches
+    pub decision: String,
+}
+
+/// A condition that can be evaluated against input data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op")]
+pub enum Condition {
+    /// Field equals value
+    #[serde(rename = "eq")]
+    Equals { field: String, value: Value },
+    
+    /// Field does not equal value
+    #[serde(rename = "ne")]
+    NotEquals { field: String, value: Value },
+    
+    /// Field is greater than value
+    #[serde(rename = "gt")]
+    GreaterThan { field: String, value: Value },
+    
+    /// Field is less than value
+    #[serde(rename = "lt")]
+    LessThan { field: String, value: Value },
+    
+    /// Field matches regex pattern
+    #[serde(rename = "regex")]
+    Matches { field: String, pattern: String },
+    
+    /// All conditions must be true
+    #[serde(rename = "and")]
+    And { conditions: Vec<Condition> },
+    
+    /// Any condition must be true
+    #[serde(rename = "or")]
+    Or { conditions: Vec<Condition> },
+    
+    /// Condition must be false
+    #[serde(rename = "not")]
+    Not { condition: Box<Condition> },
+}
+
+impl Rule {
+    /// Check if the rule matches the input data
+    pub fn matches(&self, data: &Value) -> bool {
+        self.conditions.iter().all(|c| c.matches(data))
+    }
+}
+
+impl Condition {
+    /// Evaluate the condition against input data
+    pub fn matches(&self, data: &Value) -> bool {
+        match self {
+            Condition::Equals { field, value } => {
+                data.get(field).map_or(false, |v| v == value)
+            }
+            Condition::NotEquals { field, value } => {
+                data.get(field).map_or(true, |v| v != value)
+            }
+            Condition::GreaterThan { field, value } => {
+                if let (Some(Value::Number(a)), Some(b)) = (data.get(field), value.as_f64()) {
+                    a.as_f64().map_or(false, |a| a > b)
+                } else {
+                    false
+                }
+            }
+            Condition::LessThan { field, value } => {
+                if let (Some(Value::Number(a)), Some(b)) = (data.get(field), value.as_f64()) {
+                    a.as_f64().map_or(false, |a| a < b)
+                } else {
+                    false
+                }
+            }
+            Condition::Matches { field, pattern } => {
+                if let Some(Value::String(s)) = data.get(field) {
+                    regex::Regex::new(pattern)
+                        .map(|re| re.is_match(s))
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            }
+            Condition::And { conditions } => {
+                conditions.iter().all(|c| c.matches(data))
+            }
+            Condition::Or { conditions } => {
+                conditions.iter().any(|c| c.matches(data))
+            }
+            Condition::Not { condition } => {
+                !condition.matches(data)
+            }
+        }
+    }
+}
+
+/// Load rules from a file
+pub fn load_rules(path: &str) -> Result<Vec<Rule>, Box<dyn std::error::Error>> {
+    let content = fs::read_to_string(path)?;
+    let mut rules: Vec<Rule> = serde_json::from_str(&content)?;
+    
+    // Sort rules by priority (highest first)
+    rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+    
+    Ok(rules)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    
+    #[test]
+    fn test_equals_condition() {
+        let condition = Condition::Equals {
+            field: "status".to_string(),
+            value: json!("active"),
+        };
+        
+        let data = json!({ "status": "active" });
+        assert!(condition.matches(&data));
+        
+        let data = json!({ "status": "inactive" });
+        assert!(!condition.matches(&data));
+    }
+    
+    #[test]
+    fn test_rule_matching() {
+        let rule = Rule {
+            id: "test-rule".to_string(),
+            description: Some("Test rule".to_string()),
+            priority: 1,
+            conditions: vec![
+                Condition::Equals {
+                    field: "status".to_string(),
+                    value: json!("active"),
+                },
+                Condition::GreaterThan {
+                    field: "score".to_string(),
+                    value: json!(50),
+                },
+            ],
+            decision: "approve".to_string(),
+        };
+        
+        let data = json!({ "status": "active", "score": 75 });
+        assert!(rule.matches(&data));
+        
+        let data = json!({ "status": "active", "score": 25 });
+        assert!(!rule.matches(&data));
+    }
+}
