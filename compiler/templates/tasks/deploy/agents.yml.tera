@@ -1,0 +1,149 @@
+# Taskfile for deploying agents to Kubernetes
+version: '3'
+
+# Agent deployment tasks
+{% for agent in agents %}
+deploy:{{ agent.name }}:
+  desc: Deploy {{ agent.name }} agent to Kubernetes
+  cmds:
+    - |
+      # Ensure namespace exists
+      kubectl create namespace {{ namespace | default("kumeo") }} --dry-run=client -o yaml | kubectl apply -f -
+      
+      # Generate values file
+      mkdir -p target/{{ agent.name }}
+      
+      # Generate values file based on agent type
+      {% if agent.type == "rust" %}
+      cat > target/{{ agent.name }}/values.yaml << 'EOF'
+      # Values for {{ agent.name }} agent
+      replicaCount: {{ agent.replicas | default(1) }}
+      
+      image:
+        repository: {{ registry | default("ghcr.io/raestrada/kumeo/agents") }}/{{ agent.name }}
+        tag: {{ tag | default("latest") }}
+        pullPolicy: IfNotPresent
+      
+      service:
+        type: ClusterIP
+        port: 80
+        targetPort: 9090
+      
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+      
+      # Agent-specific configuration
+      config:
+        {{ agent.config | to_yaml | indent(8) }}
+      
+      # Runtime configuration
+      runtime:
+        image:
+          repository: ghcr.io/raestrada/kumeo/runtime
+          tag: {{ runtime_tag | default("latest") }}
+          pullPolicy: IfNotPresent
+        
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+      EOF
+      
+      {% else %}
+      # Python agent values
+      cat > target/{{ agent.name }}/values.yaml << 'EOF'
+      # Values for {{ agent.name }} agent
+      replicaCount: {{ agent.replicas | default(1) }}
+      
+      image:
+        repository: {{ registry | default("ghcr.io/raestrada/kumeo/agents") }}/{{ agent.name }}
+        tag: {{ tag | default("latest") }}
+        pullPolicy: IfNotPresent
+      
+      service:
+        type: ClusterIP
+        port: 80
+        targetPort: 8000
+      
+      resources:
+        limits:
+          cpu: 1000m
+          memory: 1Gi
+        requests:
+          cpu: 200m
+          memory: 256Mi
+      
+      # Agent-specific configuration
+      config:
+        {{ agent.config | to_yaml | indent(8) }}
+      
+      # Runtime configuration
+      runtime:
+        image:
+          repository: ghcr.io/raestrada/kumeo/runtime
+          tag: {{ runtime_tag | default("latest") }}
+          pullPolicy: IfNotPresent
+        
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+      EOF
+      {% endif %}
+      
+      # Deploy using Helm
+      helm upgrade --install {{ agent.name }} \
+        --namespace {{ namespace | default("kumeo") }} \
+        --values target/{{ agent.name }}/values.yaml \
+        --set image.tag={{ tag | default("latest") }} \
+        --set replicaCount={{ agent.replicas | default(1) }} \
+        --create-namespace \
+        oci://ghcr.io/raestrada/kumeo/helm/agent
+
+{% endfor %}
+
+# Deploy all agents
+deploy:all:
+  desc: Deploy all agents
+  cmds:
+    {% for agent in agents %}
+    - task deploy:{{ agent.name }}
+    {% endfor %}
+
+# List all deployments
+list:
+  desc: List all agent deployments
+  cmds:
+    - kubectl get deployments -n {{ namespace | default("kumeo") }}
+
+# Get agent logs
+logs:
+  desc: Get logs for an agent
+  cmds:
+    - kubectl logs -n {{ namespace | default("kumeo") }} -l app.kubernetes.io/name={{ agent }} --tail=100 -f
+
+# Delete an agent
+delete:
+  desc: Delete an agent
+  cmds:
+    - helm uninstall {{ agent }} -n {{ namespace | default("kumeo") }}
+    - kubectl delete pvc -n {{ namespace | default("kumeo") }} -l app.kubernetes.io/name={{ agent }}
+
+# Delete all agents
+delete:all:
+  desc: Delete all agents
+  cmds:
+    {% for agent in agents %}
+    - task delete agent={{ agent.name }}
+    {% endfor %}

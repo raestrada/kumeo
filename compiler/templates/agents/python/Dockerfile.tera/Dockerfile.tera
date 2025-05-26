@@ -1,0 +1,51 @@
+# Build stage
+FROM --platform=$BUILDPLATFORM python:3.11-slim as builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python dependencies
+COPY pyproject.toml .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --user -e .
+
+# Runtime stage
+FROM python:3.11-slim-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Copy the virtual environment from builder
+COPY --from=builder /root/.local /home/appuser/.local
+
+# Copy application code
+COPY . /app
+WORKDIR /app
+
+# Copy config directory if it exists
+COPY config/ /config/
+
+# Set environment variables
+ENV PATH="/home/appuser/.local/bin:${PATH}"
+ENV PYTHONPATH="/app"
+ENV PYTHONUNBUFFERED="1"
+
+# Set the user to nonroot
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD ["curl", "-f", "http://localhost:8000/healthz"]
+
+# Run the application
+ENTRYPOINT ["python", "-m", "kumeo_agent_{{agent_name | lower}}.agent"]

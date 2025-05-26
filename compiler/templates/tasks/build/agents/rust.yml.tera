@@ -1,0 +1,84 @@
+# Taskfile for building Rust agents
+version: '3'
+
+# Agent build tasks
+{% for agent in agents %}
+build:{{ agent.name }}:
+  desc: Build {{ agent.name }} agent
+  cmds:
+    - |
+      # Ensure target directory exists
+      mkdir -p target/{{ agent.name }}
+      
+      # Generate Dockerfile
+      cat > target/{{ agent.name }}/Dockerfile << 'EOF'
+      # Build stage
+      FROM --platform=$BUILDPLATFORM rust:1.70-slim as builder
+
+      # Install build dependencies
+      RUN apt-get update && apt-get install -y \
+          pkg-config \
+          libssl-dev \
+          && rm -rf /var/lib/apt/lists/*
+
+      WORKDIR /usr/src/{{ agent.name }}
+
+      # Copy manifests
+      COPY Cargo.toml Cargo.lock ./
+      
+      # Copy source code
+      COPY src/ src/
+      
+      # Build for release
+      RUN --mount=type=cache,target=/usr/local/cargo/registry \
+          --mount=type=cache,target=/usr/src/{{ agent.name }}/target \
+          cargo build --release && \
+          cp target/release/{{ agent.name }} /usr/local/bin/{{ agent.name }}
+
+      # Runtime stage
+      FROM gcr.io/distroless/cc:nonroot
+
+      # Copy the binary from the builder stage
+      COPY --from=builder /usr/local/bin/{{ agent.name }} /usr/local/bin/{{ agent.name }}
+
+      # Copy config file (if any)
+      COPY config/ /config/
+
+
+      # Set the working directory
+      WORKDIR /app
+
+      # Set the user to nonroot (user 65532:65532)
+      USER 65532:65532
+
+      # Set the entrypoint
+      ENTRYPOINT ["/usr/local/bin/{{ agent.name }}"]
+
+      # Health check
+      HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+          CMD ["/usr/local/bin/{{ agent.name }}", "health-check"]
+      EOF
+      
+      # Build and push the image
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        -t {{ registry | default("ghcr.io/raestrada/kumeo/agents") }}/{{ agent.name }}:{{ tag | default("latest") }} \
+        -f target/{{ agent.name }}/Dockerfile \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        --cache-from type=registry,ref={{ registry | default("ghcr.io/raestrada/kumeo/agents") }}/{{ agent.name }}:cache \
+        --cache-to type=inline,mode=max \
+        --push \
+        .
+
+  vars:
+    DOCKER_BUILDKIT: 1
+
+{% endfor %}
+
+# Build all Rust agents
+build:all:
+  desc: Build all Rust agents
+  cmds:
+    {% for agent in agents %}
+    - task build:{{ agent.name }}
+    {% endfor %}

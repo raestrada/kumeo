@@ -1,0 +1,141 @@
+# Default values for agent deployment
+# This file is a template that will be processed with the agent configuration
+
+# Agent configuration
+agent:
+  # Agent type (rust or python)
+  type: {{ agent_type }}
+  
+  # Agent name (will be used as deployment name)
+  name: {{ agent_name }}
+  
+  # Agent configuration (will be mounted as a config map)
+  config: {}
+  
+  # Resources for the agent container
+  resources:
+    limits:
+      cpu: {{ '500m' if agent_type == 'rust' else '1000m' }}
+      memory: {{ '512Mi' if agent_type == 'rust' else '1Gi' }}
+    requests:
+      cpu: {{ '100m' if agent_type == 'rust' else '200m' }}
+      memory: {{ '128Mi' if agent_type == 'rust' else '256Mi' }}
+  
+  # Environment variables
+  env: []
+  
+  # Volume mounts
+  volumes: []
+  
+  # Additional container arguments
+  args: []
+  
+  # Additional container command
+  command: []
+  
+  # Liveness probe configuration
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: {{ 9090 if agent_type == 'rust' else 8000 }}
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  # Readiness probe configuration
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: {{ 9090 if agent_type == 'rust' else 8000 }}
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Image configuration
+image:
+  repository: {{ image_repository | default("ghcr.io/raestrada/kumeo/agents") }}
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: {{ image_tag | default("latest") }}
+
+# Replica count
+replicaCount: 1
+
+# Security context
+securityContext: {}
+
+# Service account configuration
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 2000
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: {{ 9090 if agent_type == 'rust' else 8000 }}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+# Autoscaling configuration
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Runtime configuration
+runtime:
+  # Runtime image
+  image:
+    repository: ghcr.io/raestrada/kumeo/runtime
+    tag: {{ runtime_tag | default("latest") }}
+    pullPolicy: IfNotPresent
+  
+  # Runtime configuration
+  config: {}
+  
+  # Resources for the runtime container
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"

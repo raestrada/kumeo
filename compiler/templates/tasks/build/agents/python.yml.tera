@@ -1,0 +1,114 @@
+# Taskfile for building Python agents
+version: '3'
+
+# Agent build tasks
+{% for agent in agents %}
+build:{{ agent.name }}:
+  desc: Build {{ agent.name }} agent
+  cmds:
+    - |
+      # Ensure target directory exists
+      mkdir -p target/{{ agent.name }}
+      
+      # Generate Dockerfile
+      cat > target/{{ agent.name }}/Dockerfile << 'EOF'
+      # Build stage
+      FROM --platform=$BUILDPLATFORM python:3.11-slim as builder
+
+      # Install build dependencies
+      RUN apt-get update && apt-get install -y \
+          gcc \
+          python3-dev \
+          && rm -rf /var/lib/apt/lists/*
+
+      WORKDIR /app
+
+      # Install Python dependencies
+      COPY pyproject.toml .
+      RUN --mount=type=cache,target=/root/.cache/pip \
+          pip install --user -e .
+
+      # Runtime stage
+      FROM python:3.11-slim-slim
+
+      # Install runtime dependencies
+      RUN apt-get update && apt-get install -y --no-install-recommends \
+          libgomp1 \
+          && rm -rf /var/lib/apt/lists/*
+
+      # Create a non-root user
+      RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+      # Copy the virtual environment from builder
+      COPY --from=builder /root/.local /home/appuser/.local
+
+      # Copy application code
+      COPY . /app
+      WORKDIR /app
+
+      # Copy config directory if it exists
+      COPY config/ /config/
+
+      # Set environment variables
+      ENV PATH="/home/appuser/.local/bin:${PATH}"
+      ENV PYTHONPATH="/app"
+      ENV PYTHONUNBUFFERED="1"
+
+      # Set the user to nonroot
+      USER appuser
+
+      # Health check
+      HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+          CMD ["curl", "-f", "http://localhost:8000/healthz"]
+
+      # Run the application
+      ENTRYPOINT ["python", "-m", "kumeo_agent_{{ agent.name | lower }}.agent"]
+      EOF
+      
+      # Generate .dockerignore
+      cat > target/{{ agent.name }}/.dockerignore << 'EOF'
+      **/__pycache__
+      **/*.pyc
+      **/*.pyo
+      **/*.pyd
+      .git
+      .gitignore
+      .venv
+      venv
+      .env
+      *.egg-info
+      dist
+      build
+      .pytest_cache
+      .mypy_cache
+      .vscode
+      .idea
+      EOF
+      
+      # Copy required files
+      cp -r src/{{ agent.name }} target/{{ agent.name }}/
+      cp pyproject.toml target/{{ agent.name }}/
+      cp -r config/ target/{{ agent.name }}/ || true
+      
+      # Build and push the image
+      cd target/{{ agent.name }} && \
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        -t {{ registry | default("ghcr.io/raestrada/kumeo/agents") }}/{{ agent.name }}:{{ tag | default("latest") }} \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        --cache-from type=registry,ref={{ registry | default("ghcr.io/raestrada/kumeo/agents") }}/{{ agent.name }}:cache \
+        --cache-to type=inline,mode=max \
+        --push \
+        .
+  vars:
+    DOCKER_BUILDKIT: 1
+
+{% endfor %}
+
+# Build all Python agents
+build:all:
+  desc: Build all Python agents
+  cmds:
+    {% for agent in agents %}
+    - task build:{{ agent.name }}
+    {% endfor %}

@@ -1,0 +1,48 @@
+version: '3'
+
+tasks:
+  build-{{agent_name}}:
+    desc: Build {{agent_name}} agent Docker image
+    cmds:
+      - |
+        docker buildx build \
+          --platform linux/amd64,linux/arm64 \
+          -t {{image_repository | default(value="kumeo/agents")}}/{{agent_name}}:{{image_tag | default(value="latest")}} \
+          -f {{agent_dir}}/Dockerfile \
+          --build-arg BUILDKIT_INLINE_CACHE=1 \
+          --cache-from type=registry,ref={{image_repository | default(value="kumeo/agents")}}/{{agent_name}}:cache \
+          --cache-to type=inline,mode=max \
+          --push \
+          .
+    vars:
+      DOCKER_BUILDKIT: 1
+
+  push-{{agent_name}}:
+    desc: Push {{agent_name}} agent Docker image to registry
+    cmds:
+      - docker push {{image_repository | default(value="kumeo/agents")}}/{{agent_name}}:{{image_tag | default(value="latest")}}
+
+  deploy-{{agent_name}}:
+    desc: Deploy {{agent_name}} agent to Kubernetes
+    cmds:
+      - |
+        helm upgrade --install {{agent_name}} \
+          --namespace {{namespace | default(value="kumeo-agents")}} \
+          --create-namespace \
+          --set image.repository={{image_repository | default(value="kumeo/agents")}}/{{agent_name}} \
+          --set image.tag={{image_tag | default(value="latest")}} \
+          --set replicaCount={{replica_count | default(value=1)}} \
+          -f {{agent_dir}}/values.yaml \
+          ./charts/{{agent_name}}
+    deps:
+      - build-{{agent_name}}
+
+  logs-{{agent_name}}:
+    desc: Show logs for {{agent_name}} agent
+    cmds:
+      - kubectl logs -n {{namespace | default(value="kumeo-agents")}} -l app.kubernetes.io/name={{agent_name}}-agent --tail=100 -f
+
+  delete-{{agent_name}}:
+    desc: Delete {{agent_name}} agent from Kubernetes
+    cmds:
+      - helm uninstall {{agent_name}} -n {{namespace | default(value="kumeo-agents")}}

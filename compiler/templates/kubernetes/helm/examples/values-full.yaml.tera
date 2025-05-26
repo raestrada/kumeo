@@ -1,5 +1,4 @@
-# Default values for {{project_name|d}}.
-# This is a YAML-formatted file.
+# Example values file for Kumeo Agents
 
 # Global configuration for all agents
 global:
@@ -7,7 +6,7 @@ global:
   nats:
     enabled: true
     external: false
-    url: ""
+    url: "nats://nats:4222"
     auth:
       enabled: false
       username: ""
@@ -18,9 +17,9 @@ global:
   minio:
     enabled: true
     external: false
-    endpoint: ""
-    accessKey: ""
-    secretKey: ""
+    endpoint: "minio:9000"
+    accessKey: "minioadmin"
+    secretKey: "minioadmin"
     bucket: "kumeo"
     secure: false
 
@@ -31,8 +30,8 @@ agentDefaults:
   
   # Image configuration
   image:
-    repository: {{image_repository|default("ghcr.io/kumeo/agents")}}
-    tag: "{{image_tag|default("latest")}}"
+    repository: ghcr.io/kumeo/agents
+    tag: "latest"
     pullPolicy: IfNotPresent
   
   # Resources
@@ -55,12 +54,6 @@ agentDefaults:
     capabilities:
       drop:
       - ALL
-  
-  # Service account
-  serviceAccount:
-    create: true
-    name: ""
-    annotations: {}
   
   # Pod security context
   podSecurityContext:
@@ -87,24 +80,6 @@ agentDefaults:
     periodSeconds: 5
     timeoutSeconds: 5
     failureThreshold: 3
-  
-  # Environment variables
-  env: []
-  
-  # Volume mounts
-  volumeMounts: []
-  
-  # Volumes
-  volumes: []
-  
-  # Node selector
-  nodeSelector: {}
-  
-  # Tolerations
-  tolerations: []
-  
-  # Affinity
-  affinity: {}
 
 # Agent-specific configurations
 agents:
@@ -116,14 +91,16 @@ agents:
     
     # Override default image
     image:
-      repository: {{image_repository|default("ghcr.io/kumeo/agents")}}/data-processor
-      tag: "{{image_tag|default("latest")}}"
+      repository: ghcr.io/kumeo/agents/data-processor
+      tag: "latest"
     
     # Agent-specific configuration
     config:
       inputTopics: ["data.in"]
       outputTopics: ["data.processed"]
       errorTopic: "errors"
+      batchSize: 100
+      timeoutSeconds: 30
     
     # Additional environment variables
     env:
@@ -131,6 +108,15 @@ agents:
         value: "info"
       - name: CONFIG_PATH
         value: "/config/config.yaml"
+    
+    # Resource overrides
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
   
   # Decision Matrix Agent
   decisionMatrix:
@@ -140,13 +126,14 @@ agents:
     
     # Override default image
     image:
-      repository: {{image_repository|default("ghcr.io/kumeo/agents")}}/decision-matrix
-      tag: "{{image_tag|default("latest")}}
+      repository: ghcr.io/kumeo/agents/decision-matrix
+      tag: "latest"
     
     # Agent-specific configuration
     config:
       rulesPath: "/config/rules.yaml"
       defaultDecision: "reject"
+      timeoutSeconds: 10
     
     # Additional environment variables
     env:
@@ -161,23 +148,26 @@ agents:
     
     # Override default image
     image:
-      repository: {{image_repository|default("ghcr.io/kumeo/agents")}}/llm
-      tag: "{{image_tag|default("latest")}}
+      repository: ghcr.io/kumeo/agents/llm
+      tag: "latest"
     
     # LLM-specific configuration
     config:
       model: "gpt-4"
       temperature: 0.7
       maxTokens: 1000
+      topP: 1.0
+      frequencyPenalty: 0.0
+      presencePenalty: 0.0
     
     # LLM requires more resources
     resources:
       limits:
-        cpu: 1000m
-        memory: 2Gi
+        cpu: 2000m
+        memory: 4Gi
       requests:
-        cpu: 200m
-        memory: 1Gi
+        cpu: 500m
+        memory: 2Gi
     
     # Additional environment variables
     env:
@@ -261,55 +251,9 @@ affinity: {}
 
 # Node selector for pod assignment
 nodeSelector: {}
+
 # Tolerations for pod assignment
 tolerations: []
+
 # Topology spread constraints
 topologySpreadConstraints: []
-  type: ClusterIP
-  port: 80
-
-autoscaling:
-  enabled: true
-  minReplicas: 1
-  maxReplicas: 10
-  targetCPUUtilizationPercentage: 80
-  targetMemoryUtilizationPercentage: 80
-
-nodeSelector: {}
-
-tolerations: []
-
-affinity: {}
-
-# KEDA (Kubernetes Event-Driven Autoscaling) configuration
-keda:
-  enabled: true
-  # Additional KEDA trigger configurations can be added here
-  triggers: []
-
-# Configuration for the Kumeo agent
-config:
-  # Path to the runtime socket
-  runtimeSocket: "/tmp/kumeo-runtime.sock"
-  
-  # Agent-specific configuration
-  agents:
-    {% for agent in agents %}
-    {{agent|lower}}:
-      enabled: true
-      # Add agent-specific configuration here
-    {% endfor %}
-
-  # NATS configuration
-  nats:
-    url: "nats://{{nats_host|default("localhost")}}:{{nats_port|default(4222)}}"
-    token: "{{nats_token|default("")}}"
-    username: "{{nats_username|default("")}}"
-    password: "{{nats_password|default("")}}"
-
-  # MinIO configuration
-  minio:
-    endpoint: "http://{{minio_host|default("localhost")}}:{{minio_port|default(9000)}}"
-    accessKey: "{{minio_accessKey|default("")}}"
-    secretKey: "{{minio_secretKey|default("")}}"
-    bucketName: "{{minio_bucketName|default("")}}"

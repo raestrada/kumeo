@@ -1,0 +1,301 @@
+{{- /* Generate a deployment for each agent */}}
+{{- range $name, $agent := .Values.agents }}
+{{- if $agent.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kumeo.fullname" $ }}-{{ $name | kebabcase }}
+  labels:
+    {{- include "kumeo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/instance: {{ $name | kebabcase }}
+    app.kubernetes.io/name: {{ $name | kebabcase }}
+spec:
+  replicas: {{ $agent.replicaCount | default $.Values.agentDefaults.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "kumeo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent
+      app.kubernetes.io/instance: {{ $name | kebabcase }}
+      app.kubernetes.io/name: {{ $name | kebabcase }}
+  template:
+    metadata:
+      labels:
+        {{- include "kumeo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/instance: {{ $name | kebabcase }}
+        app.kubernetes.io/name: {{ $name | kebabcase }}
+      annotations:
+        checksum/config: {{ include (print .Template.BasePath "/configmap.yaml") . | sha256sum }}
+        agent-type: {{ $agent.type | default "generic" }}
+        agent-name: {{ $name }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "http"
+        prometheus.io/path: "/metrics"
+        {{- with $agent.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with $agent.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- else if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      
+      serviceAccountName: {{ include "kumeo.serviceAccountName" . }}
+      
+      {{- with $agent.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- else }}
+      securityContext:
+        {{- toYaml .Values.agentDefaults.podSecurityContext | default dict | nindent 8 }}
+      {{- end }}
+      
+      {{- if $agent.initContainers }}
+      initContainers:
+        {{- toYaml $agent.initContainers | nindent 8 }}
+      {{- end }}
+      
+      containers:
+      - name: {{ $name | kebabcase }}
+        {{- with $agent.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- else }}
+        securityContext:
+          {{- toYaml .Values.agentDefaults.securityContext | default dict | nindent 10 }}
+        {{- end }}
+        
+        image: "{{ $agent.image.repository | default .Values.agentDefaults.image.repository }}:{{ $agent.image.tag | default .Values.agentDefaults.image.tag }}"
+        imagePullPolicy: {{ $agent.image.pullPolicy | default .Values.agentDefaults.image.pullPolicy | default "IfNotPresent" }}
+        
+        {{- with $agent.command }}
+        command:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        
+        {{- with $agent.args }}
+        args:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        
+        {{- with $agent.livenessProbe }}
+        livenessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- else }}
+        livenessProbe:
+          {{- toYaml .Values.agentDefaults.livenessProbe | nindent 10 }}
+        {{- end }}
+        
+        {{- with $agent.readinessProbe }}
+        readinessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- else }}
+        readinessProbe:
+          {{- toYaml .Values.agentDefaults.readinessProbe | nindent 10 }}
+        {{- end }}
+        
+        ports:
+        - name: http
+          containerPort: {{ $agent.service.port | default .Values.service.targetPort | default 8080 }}
+          protocol: TCP
+          httpGet:
+            path: {{ $agent.probes.liveness.path | default .Values.probes.liveness.path | default "/health" }}
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: {{ $agent.probes.liveness.initialDelaySeconds | default .Values.probes.liveness.initialDelaySeconds | default 10 }}
+          periodSeconds: {{ $agent.probes.liveness.periodSeconds | default .Values.probes.liveness.periodSeconds | default 10 }}
+          timeoutSeconds: {{ $agent.probes.liveness.timeoutSeconds | default .Values.probes.liveness.timeoutSeconds | default 5 }}
+          successThreshold: {{ $agent.probes.liveness.successThreshold | default .Values.probes.liveness.successThreshold | default 1 }}
+          failureThreshold: {{ $agent.probes.liveness.failureThreshold | default .Values.probes.liveness.failureThreshold | default 3 }}
+        readinessProbe:
+          httpGet:
+            path: {{ $agent.probes.readiness.path | default .Values.probes.readiness.path | default "/ready" }}
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: {{ $agent.probes.readiness.initialDelaySeconds | default .Values.probes.readiness.initialDelaySeconds | default 5 }}
+          periodSeconds: {{ $agent.probes.readiness.periodSeconds | default .Values.probes.readiness.periodSeconds | default 5 }}
+          timeoutSeconds: {{ $agent.probes.readiness.timeoutSeconds | default .Values.probes.readiness.timeoutSeconds | default 5 }}
+          successThreshold: {{ $agent.probes.readiness.successThreshold | default .Values.probes.readiness.successThreshold | default 1 }}
+          failureThreshold: {{ $agent.probes.readiness.failureThreshold | default .Values.probes.readiness.failureThreshold | default 3 }}
+        env:
+        - name: RUST_LOG
+          value: {{ $agent.logLevel | default .Values.logLevel | default "info" | quote }}
+        - name: AGENT_NAME
+          value: {{ $name | quote }}
+        - name: AGENT_TYPE
+          value: {{ $agent.type | default "generic" | quote }}
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        # NATS Configuration
+        {{- if .Values.global.nats.external }}
+        - name: NATS_URL
+          value: {{ .Values.global.nats.url | quote }}
+        {{- else }}
+        - name: NATS_URL
+          value: {{ printf "nats://%s-nats:4222" .Release.Name | quote }}
+        {{- end }}
+        {{- with .Values.global.nats.auth }}
+        {{- if .enabled }}
+        - name: NATS_USERNAME
+          value: {{ .username | quote }}
+        - name: NATS_PASSWORD
+          value: {{ .password | quote }}
+        {{- if .token }}
+        - name: NATS_TOKEN
+          value: {{ .token | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        
+        # MinIO Configuration
+        {{- if .Values.global.minio.external }}
+        - name: MINIO_ENDPOINT
+          value: {{ .Values.global.minio.endpoint | quote }}
+        {{- else }}
+        - name: MINIO_ENDPOINT
+          value: {{ printf "http://%s-minio:9000" .Release.Name | quote }}
+        {{- end }}
+        - name: MINIO_ACCESS_KEY
+          value: {{ .Values.global.minio.accessKey | default "minio" | quote }}
+        - name: MINIO_SECRET_KEY
+          value: {{ .Values.global.minio.secretKey | default "minio123" | quote }}
+        - name: MINIO_BUCKET
+          value: {{ $agent.minioBucket | default .Values.global.minio.bucket | default "kumeo" | quote }}
+        - name: MINIO_SECURE
+          value: {{ .Values.global.minio.secure | default "false" | quote }}
+        {{- if $agent.env }}
+        {{- range $key, $value := $agent.env }}
+        - name: {{ $key }}
+          value: "{{ $value }}"
+        {{- end }}
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /etc/kumeo/config
+          readOnly: true
+        - name: runtime-socket
+          mountPath: /run/kumeo
+        {{- if $agent.volumeMounts }}
+        {{- toYaml $agent.volumeMounts | nindent 8 }}
+        {{- end }}
+        resources:
+          {{- toYaml ($agent.resources | default .Values.agentDefaults.resources) | nindent 10 }}
+      
+      {{- if .Values.runtime.enabled }}
+      - name: kumeo-runtime
+        image: "{{ .Values.runtime.image.repository }}:{{ .Values.runtime.image.tag }}"
+        imagePullPolicy: {{ .Values.runtime.image.pullPolicy | default "IfNotPresent" }}
+        ports:
+        - name: runtime
+          containerPort: 9090
+          protocol: TCP
+        env:
+        - name: RUNTIME_SOCKET_PATH
+          value: {{ .Values.runtime.socketPath | quote }}
+        - name: RUST_LOG
+          value: "info"
+        # NATS Configuration for Runtime
+        {{- if .Values.global.nats.external }}
+        - name: NATS_URL
+          value: {{ .Values.global.nats.url | quote }}
+        {{- else }}
+        - name: NATS_URL
+          value: {{ printf "nats://%s-nats:4222" .Release.Name | quote }}
+        {{- end }}
+        {{- with .Values.global.nats.auth }}
+        {{- if .enabled }}
+        - name: NATS_USERNAME
+          value: {{ .username | quote }}
+        - name: NATS_PASSWORD
+          value: {{ .password | quote }}
+        {{- if .token }}
+        - name: NATS_TOKEN
+          value: {{ .token | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        # MinIO Configuration for Runtime
+        {{- if .Values.global.minio.external }}
+        - name: MINIO_ENDPOINT
+          value: {{ .Values.global.minio.endpoint | quote }}
+        {{- else }}
+        - name: MINIO_ENDPOINT
+          value: {{ printf "http://%s-minio:9000" .Release.Name | quote }}
+        {{- end }}
+        - name: MINIO_ACCESS_KEY
+          value: {{ .Values.global.minio.accessKey | default "minio" | quote }}
+        - name: MINIO_SECRET_KEY
+          value: {{ .Values.global.minio.secretKey | default "minio123" | quote }}
+        - name: MINIO_BUCKET
+          value: {{ $agent.minioBucket | default .Values.global.minio.bucket | default "kumeo" | quote }}
+        - name: MINIO_SECURE
+          value: {{ .Values.global.minio.secure | default "false" | quote }}
+        resources:
+          {{- toYaml $.Values.runtime.resources | nindent 10 }}
+        volumeMounts:
+        - name: config
+          mountPath: /etc/kumeo/config
+          readOnly: true
+        - name: runtime-socket
+          mountPath: /run/kumeo
+        {{- if $.Values.runtime.volumeMounts }}
+        {{- toYaml $.Values.runtime.volumeMounts | nindent 8 }}
+        {{- end }}
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "kumeo.fullname" . }}-{{ $name | kebabcase }}
+          items:
+          - key: config.yaml
+            path: config.yaml
+      - name: runtime-socket
+        emptyDir: {}
+      {{- if $agent.volumes }}
+      {{- toYaml $agent.volumes | nindent 6 }}
+      {{- end }}
+      {{- if .Values.volumes }}
+      {{- toYaml .Values.volumes | nindent 6 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $agent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $agent.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $agent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}

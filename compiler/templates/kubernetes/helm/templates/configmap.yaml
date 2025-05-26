@@ -1,0 +1,37 @@
+{{- /* Generate ConfigMap for each agent */}}
+{{- range $name, $agent := .Values.agents }}
+{{- if $agent.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kumeo.fullname" . }}-{{ $name | kebabcase }}-config
+  labels:
+    {{- include "kumeo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/instance: {{ $name | kebabcase }}
+    app.kubernetes.io/name: {{ $name | kebabcase }}
+data:
+  # Agent configuration
+  config.yaml: |
+    {{- with $agent.config }}
+    {{- toYaml . | nindent 4 }}
+    {{- else }}
+    type: {{ $agent.type | default "generic" | quote }}
+    {{- end }}
+    
+    {{- if $agent.config }}
+    # Agent specific configuration
+    {{- range $key, $value := $agent.config }}
+    {{ $key }}: {{ $value | toYaml | nindent 4 }}
+    {{- end }}
+    {{- end }}
+    
+    {{- if .Values.config }}
+    # Global configuration
+    {{- range $key, $value := .Values.config }}
+    {{ $key }}: {{ $value | toYaml | nindent 4 }}
+    {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
