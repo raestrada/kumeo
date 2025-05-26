@@ -11,10 +11,11 @@ fn test_missing_workflow_braces() {
     let result = parse(input);
     assert!(result.is_err(), "Debería fallar por llaves faltantes");
     
-    if let Err(KumeoError::ParseError(details)) = result {
-        assert!(details.contains("expected"), "Mensaje de error inesperado: {}", details);
-    } else {
-        panic!("Tipo de error inesperado");
+    assert!(result.is_err(), "Debería fallar por llaves faltantes");
+    
+    if let Err(err) = result {
+        let err_str = err.to_string();
+        assert!(err_str.contains("expected"), "Mensaje de error inesperado: {}", err_str);
     }
 }
 

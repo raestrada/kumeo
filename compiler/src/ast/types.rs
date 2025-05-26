@@ -138,6 +138,19 @@ pub enum AgentType {
     HumanReview,
 }
 
+impl std::fmt::Display for AgentType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AgentType::LLM => write!(f, "llm"),
+            AgentType::MLModel => write!(f, "mlmodel"),
+            AgentType::DataProcessor => write!(f, "dataprocessor"),
+            AgentType::Router => write!(f, "router"),
+            AgentType::DecisionMatrix => write!(f, "decisionmatrix"),
+            AgentType::HumanReview => write!(f, "humanreview"),
+        }
+    }
+}
+
 /// Represents an argument to an agent or function.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Argument {

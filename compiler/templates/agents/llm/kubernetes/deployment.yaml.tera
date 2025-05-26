@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ agent_id }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ agent_id }}
+  template:
+    metadata:
+      labels:
+        app: {{ agent_id }}
+    spec:
+      containers:
+      - name: {{ agent_id }}
+        image: {{ agent_id }}
+        ports:
+        - containerPort: 8080
