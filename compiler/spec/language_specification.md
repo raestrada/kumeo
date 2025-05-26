@@ -214,17 +214,32 @@ Kumeo has a static type system with type inference. The following types are supp
 
 ### 4.3 Agent Types
 
+#### Core Agents
+- `DataProcessor`: Processes and transforms data
+- `MLModel`: Executes machine learning models
 - `LLM`: Large language model agent
-- `MLModel`: Machine learning model agent
-- `BayesianNetwork`: Probabilistic model agent
-- `DecisionMatrix`: Rule-based decision agent
-- `HumanInLoop`: Human integration agent
-- `Router`: Message routing agent
-- `Aggregator`: Data aggregation agent
-- `RuleEngine`: Rule evaluation agent
-- `DataNormalizer`: Data preprocessing agent
-- `MissingValueHandler`: Data cleaning agent
-- `CustomAgent`: User-defined agent
+- `Router`: Routes messages based on rules
+- `DecisionMatrix`: Validates data against rules
+- `HumanReview`: Manages human-in-the-loop workflows
+
+#### Model Types
+- `onnx`: ONNX Runtime models
+- `pytorch`: PyTorch models
+- `bayesian`: Bayesian networks
+- `rules_engine`: Rule-based validations
+- `python`: Custom Python validators
+
+#### Agent Configuration
+Agents support the following common configurations:
+- `id`: Unique identifier
+- `input`: Input data source
+- `output`: Output destination
+- `model`: Reference to model definition
+- `config`: Agent-specific configuration
+- `when`: Conditional execution
+- `timeout`: Maximum execution time
+- `retry`: Retry policy
+- `fallback`: Fallback behavior on failure
 
 ### 4.4 Context Types
 
@@ -250,17 +265,85 @@ Kumeo follows an event-driven execution model. Workflows are triggered when even
 
 Agents execute independently and in parallel when possible. They process events according to their specific semantics:
 
-- `LLM`: Sends prompt to language model and collects response
-- `MLModel`: Feeds data to ML model for inference
-- `BayesianNetwork`: Updates beliefs and computes probabilities
-- `DecisionMatrix`: Evaluates rules against inputs
-- `HumanInLoop`: Presents data to human and collects feedback
-- `Router`: Routes events based on conditions
-- `Aggregator`: Combines multiple events into one
-- `RuleEngine`: Evaluates complex rules
-- `DataNormalizer`: Normalizes data to standard format
-- `MissingValueHandler`: Handles missing data
-- `CustomAgent`: User-defined behavior
+#### DataProcessor
+- Processes and transforms input data
+- Common operations: validation, normalization, enrichment
+- Example: `DataProcessor(id: "cleaner", input: "source", output: "clean.data")`
+
+#### MLModel
+- Executes machine learning models
+- Supports multiple model types (ONNX, PyTorch, etc.)
+- Handles input/output transformations
+- Example: 
+  ```
+  MLModel(
+    id: "fraud_detector",
+    input: "tx.data",
+    output: "scores",
+    model: "models.fraud_model",
+    output_schema: "schemas.scores"
+  )
+  ```
+
+#### LLM
+- Interfaces with large language models
+- Configurable providers (Ollama, OpenAI, etc.)
+- Prompt templating and context injection
+- Example:
+  ```
+  LLM(
+    id: "analyzer",
+    input: "input.text",
+    provider: { ollama: { model: "llama3" } },
+    prompt: "Analyze: {{input}}"
+  )
+  ```
+
+#### DecisionMatrix
+- Validates data against rules
+- Supports complex conditions and fallbacks
+- Example:
+  ```
+  DecisionMatrix(
+    id: "validator",
+    input: "data",
+    rules: [
+      { name: "valid_range", condition: "value >= 0 && value <= 100" },
+      { name: "required", condition: "field != null" }
+    ]
+  )
+  ```
+
+#### HumanReview
+- Manages human approval workflows
+- Configurable interfaces and notifications
+- Example:
+  ```
+  HumanReview(
+    id: "approval",
+    input: "submission",
+    when: "submission.amount > 10000",
+    config: {
+      ui: { /* UI config */ },
+      notifications: { /* Notifications */ }
+    }
+  )
+  ```
+
+#### Router
+- Routes messages based on conditions
+- Supports multiple output channels
+- Example:
+  ```
+  Router(
+    id: "distributor",
+    input: "data",
+    rules: {
+      "data.priority == 'high'": "target.high_priority",
+      "default": "target.normal"
+    }
+  )
+  ```
 
 ### 5.3 Error Handling
 

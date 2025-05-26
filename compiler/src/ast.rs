@@ -2,6 +2,33 @@ use std::collections::HashMap;
 use std::fmt;
 use serde::{Serialize, Deserialize};
 
+/// Common configuration for all agents
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentConfig {
+    pub id: Option<String>,
+    pub input: Option<String>,
+    pub output: Option<String>,
+    pub model: Option<String>,
+    pub when: Option<String>,
+    pub timeout: Option<String>,
+    pub retry: Option<RetryPolicy>,
+    pub fallback: Option<FallbackConfig>,
+    #[serde(flatten)]
+    pub custom: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryPolicy {
+    pub max_attempts: u32,
+    pub backoff: String, // e.g., "1s", "2s,5s,10s"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FallbackConfig {
+    pub action: String, // "continue", "fail", "use_default"
+    pub default: Option<Value>,
+}
+
 /// Root node for a Kumeo program
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Program {
@@ -10,17 +37,81 @@ pub struct Program {
     pub integrations: Vec<Integration>,
 }
 
-/// Workflow definition
+/// Workflow definition with resources and agents
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workflow {
     pub name: String,
+    pub description: Option<String>,
+    
+    // Communication
+    pub nats: Option<String>,
+    
+    // Data sources
     pub source: Option<Source>,
-    pub target: Option<Target>,
-    pub context: Option<Context>,
-    pub preprocessors: Option<Vec<Agent>>,
+    
+    // Output channels
+    pub target: Option<Vec<Target>>,
+    
+    // Resource definitions
+    pub models: Option<HashMap<String, ModelDef>>,
+    pub schemas: Option<HashMap<String, String>>,
+    pub config: Option<HashMap<String, Value>>,
+    
+    // Agent pipeline
     pub agents: Vec<Agent>,
-    pub monitor: Option<HashMap<String, Value>>,
-    pub deployment: Option<HashMap<String, Value>>,
+    
+    // Monitoring
+    pub monitor: Option<MonitorConfig>,
+    
+    // Deployment configuration
+    pub deployment: Option<DeploymentConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelDef {
+    pub file: String,
+    pub r#type: String,  // "onnx", "pytorch", etc.
+    pub version: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorConfig {
+    pub metrics: Vec<String>,
+    pub dashboard: Option<String>,
+    pub alerts: Option<Vec<AlertConfig>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlertConfig {
+    pub name: String,
+    pub condition: String,
+    pub severity: String,  // "info", "warning", "critical"
+    pub actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentConfig {
+    pub base_images: Option<HashMap<String, String>>,
+    pub resources: Option<HashMap<String, ResourceConfig>>,
+    pub storage: Option<HashMap<String, String>>,
+    pub scaling: Option<ScalingConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceConfig {
+    pub cpu: String,
+    pub memory: String,
+    pub gpu: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScalingConfig {
+    pub min_replicas: u32,
+    pub max_replicas: u32,
+    pub target_cpu: Option<u32>,
+    pub target_memory: Option<u32>,
+}
 }
 
 /// Subworkflow definition
@@ -80,25 +171,80 @@ pub enum Context {
     Custom(String, Vec<Value>),
 }
 
-/// Agent definition
+/// Agent definition with common configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
-    pub id: Option<String>,
+    #[serde(flatten)]
+    pub config: AgentConfig,
+    #[serde(flatten)]
     pub agent_type: AgentType,
-    pub config: Vec<Argument>,
 }
 
-/// Agent type
+/// Core Agent Types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentType {
-    LLM,
-    MLModel,
-    BayesianNetwork,
-    DecisionMatrix,
-    HumanInLoop,
-    Router,
-    Aggregator,
-    RuleEngine,
+    /// Data processing and transformation
+    DataProcessor {
+        config: HashMap<String, Value>,
+    },
+    
+    /// Machine learning model execution
+    MLModel {
+        model: String,
+        output_schema: Option<String>,
+    },
+    
+    /// Large language model interface
+    LLM {
+        provider: LLMProvider,
+        prompt: String,
+        context: Option<Value>,
+    },
+    
+    /// Conditional message routing
+    Router {
+        rules: HashMap<String, String>,
+    },
+    
+    /// Validation against rules
+    DecisionMatrix {
+        rules: Vec<ValidationRule>,
+        on_failure: Option<FailureAction>,
+    },
+    
+    /// Human review workflow
+    HumanReview {
+        config: HumanReviewConfig,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum LLMProvider {
+    Ollama { model: String },
+    OpenAI { model: String, api_key: Option<String> },
+    // Add other providers as needed
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationRule {
+    pub name: String,
+    pub condition: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FailureAction {
+    Quarantine { retry: Option<u32> },
+    Reject,
+    LogAndContinue,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HumanReviewConfig {
+    pub ui: HashMap<String, Value>,
+    pub notifications: HashMap<String, Value>,
+    pub timeout: Option<String>,
+}
     DataNormalizer,
     MissingValueHandler,
     Custom(String),

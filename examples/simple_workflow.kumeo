@@ -1,18 +1,85 @@
-workflow SimpleWorkflow {
-    source: NATS("input-events")
-    target: NATS("output-events")
+// Simple Text Analysis Workflow
+workflow SimpleTextAnalysis {
+  // Communication
+  nats: "nats://nats:4222"
+  
+  // Data sources
+  source: NATS("input.text")
+  
+  // Output channels
+  target: [
+    NATS("analysis.results"),
+    NATS("alerts.high_sentiment")
+  ]
+  
+  // Resource definitions
+  models: {
+    // Sentiment analysis model
+    sentiment_analyzer: {
+      file: "sentiment_analyzer.onnx",
+      type: "onnx",
+      version: "1.0.0"
+    }
+  }
+  
+  // Agent pipeline
+  agents: [
+    // 1. Text Preprocessing
+    DataProcessor(
+      id: "text_cleaner",
+      input: "source",
+      output: "cleaned.text",
+      config: {
+        steps: ["trim", "lowercase", "remove_special_chars"]
+      }
+    ),
     
-    agents: [
-        LLM(
-            id: "text_processor",
-            engine: "ollama/llama3",
-            prompt: "Analyze the following text: {{data}}"
-        ),
-        
-        MLModel(
-            id: "sentiment_analyzer",
-            model: "sentiment.onnx",
-            input: text_processor.output
-        )
-    ]
+    // 2. Sentiment Analysis
+    MLModel(
+      id: "sentiment_analyzer",
+      input: "cleaned.text",
+      output: "sentiment.scores",
+      model: "models.sentiment_analyzer",
+      output_schema: "schemas.sentiment_scores"
+    ),
+    
+    // 3. Alert Generator
+    Router(
+      id: "alert_router",
+      input: "sentiment.scores",
+      output_schema: "schemas.alert_output",
+      rules: {
+        "sentiment.score > 0.8": "target.alerts.high_sentiment",
+        "default": "target.analysis.results"
+      }
+    )
+  ]
+  
+  // Monitoring
+  monitor: {
+    metrics: ["processing_time", "sentiment_scores"],
+    dashboard: "monitoring/text_analysis"
+  }
+  
+  // Deployment configuration
+  deployment: {
+    // Base images
+    base_images: {
+      default: "kumeo/agent-base:1.0"
+    },
+    
+    // Resource allocation
+    resources: {
+      default: {
+        cpu: "500m",
+        memory: "1Gi"
+      }
+    },
+    
+    // Storage paths
+    storage: {
+      models: "/app/models",
+      data: "/app/data"
+    }
+  }
 }

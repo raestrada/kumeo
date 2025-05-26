@@ -1,127 +1,166 @@
-use kumeo_compiler::ast::{Source, Target, AgentType, Argument, Value};
-use kumeo_compiler::parse;
+use kumeo_compiler::ast::{Source, Target, Agent, AgentType, Context, Value};
+use kumeo_compiler::parser::parse;
+use std::collections::HashMap;
+
+// Inicializar el logger para los tests
+fn init_logger() {
+    use tracing_subscriber::{fmt, EnvFilter};
+    use std::sync::Once;
+    
+    static INIT: Once = Once::new();
+    
+    INIT.call_once(|| {
+        fmt()
+            .with_env_filter(EnvFilter::from_default_env()
+                .add_directive(tracing::Level::DEBUG.into()))
+            .with_test_writer()
+            .init();
+    });
+}
 
 #[test]
 fn test_simple_workflow_parsing() {
+    init_logger();
+    
     // Simple test input
     let test_input = r#"
-        workflow SimpleWorkflow {
-            source: NATS("input-events")
-            target: NATS("output-events")
-            
-            agents: [
-                LLM(
-                    id: "text_processor",
-                    engine: "ollama/llama3",
-                    prompt: "Analyze the following text: {{data}}"
-                )
-            ]
+    workflow SimpleWorkflow {
+        source input {
+            type = "nats"
+            topic = "input-events"
         }
+        
+        target output {
+            type = "nats"
+            topic = "output-events"
+        }
+        
+        agent LLM text_processor {
+            engine = "ollama/llama3"
+            prompt = "Analyze the following text: {{data}}"
+        }
+    }
     "#;
     
     // Parse the input
-    let program = parse(test_input).expect("Should parse successfully");
+    let workflow = parse(test_input).expect("Should parse successfully");
     
     // Verify the AST structure
-    assert_eq!(program.workflows.len(), 1, "Should have 1 workflow");
-    
-    let workflow = &program.workflows[0];
     assert_eq!(workflow.name, "SimpleWorkflow", "Workflow name should match");
     
     // Check source
     assert!(workflow.source.is_some(), "Workflow should have a source");
-    if let Some(Source::NATS(topic, _)) = &workflow.source {
-        assert_eq!(topic, "input-events", "Source topic should match");
-    } else {
-        panic!("Source should be NATS");
-    }
+    let source = workflow.source.as_ref().unwrap();
+    assert_eq!(source.r#type, "nats", "Source type should be nats");
+    assert_eq!(
+        source.config.get("topic").and_then(|v| v.as_str()),
+        Some("input-events"),
+        "Source topic should match"
+    );
     
     // Check target
     assert!(workflow.target.is_some(), "Workflow should have a target");
-    if let Some(Target::NATS(topic, _)) = &workflow.target {
-        assert_eq!(topic, "output-events", "Target topic should match");
-    } else {
-        panic!("Target should be NATS");
-    }
+    let target = workflow.target.as_ref().unwrap();
+    assert_eq!(target.r#type, "nats", "Target type should be nats");
+    assert_eq!(
+        target.config.get("topic").and_then(|v| v.as_str()),
+        Some("output-events"),
+        "Target topic should match"
+    );
     
     // Check agents
     assert_eq!(workflow.agents.len(), 1, "Should have 1 agent");
     
     let agent = &workflow.agents[0];
-    match agent.agent_type {
-        AgentType::LLM => { /* Expected */ },
-        _ => panic!("Agent should be of type LLM")
-    };
-    assert_eq!(agent.id, Some("text_processor".to_string()), "Agent ID should match");
+    assert_eq!(agent.agent_type, AgentType::LLM, "Agent should be of type LLM");
+    assert_eq!(agent.id, "text_processor", "Agent ID should match");
     
     // Check agent configuration
-    let mut engine_found = false;
-    let mut prompt_found = false;
+    assert_eq!(
+        agent.config.get("engine").and_then(|v| v.as_str()),
+        Some("ollama/llama3"),
+        "Engine should match"
+    );
     
-    for arg in &agent.config {
-        match arg {
-            Argument::Named(name, Value::String(value)) => {
-                if name == "engine" {
-                    assert_eq!(value, "ollama/llama3", "Engine should match");
-                    engine_found = true;
-                } else if name == "prompt" {
-                    assert_eq!(value, "Analyze the following text: {{data}}", "Prompt should match");
-                    prompt_found = true;
-                }
-            }
-            _ => {}
-        }
-    }
-    
-    assert!(engine_found, "Agent should have engine configuration");
-    assert!(prompt_found, "Agent should have prompt configuration");
+    assert_eq!(
+        agent.config.get("prompt").and_then(|v| v.as_str()),
+        Some("Analyze the following text: {{data}}"),
+        "Prompt should match"
+    );
 }
 
 #[test]
 fn test_workflow_with_multi_agent() {
+    init_logger();
+    
     // Test input with multiple agents
     let test_input = r#"
-        workflow MultiAgentWorkflow {
-            source: NATS("data-input")
-            
-            agents: [
-                LLM(
-                    id: "summarizer",
-                    engine: "mistral"
-                ),
-                MLModel(
-                    id: "classifier",
-                    model_path: "models/classifier"
-                )
-            ]
+    workflow MultiAgentWorkflow {
+        source input {
+            type = "nats"
+            topic = "data-input"
         }
+        
+        agent LLM summarizer {
+            engine = "mistral"
+        }
+        
+        agent MLModel classifier {
+            model_path = "models/classifier"
+        }
+    }
     "#;
     
     // Parse the input
-    let program = parse(test_input).expect("Should parse successfully");
+    let workflow = parse(test_input).expect("Should parse successfully");
     
     // Verify the AST structure
-    assert_eq!(program.workflows.len(), 1, "Should have 1 workflow");
-    
-    let workflow = &program.workflows[0];
     assert_eq!(workflow.name, "MultiAgentWorkflow", "Workflow name should match");
+    
+    // Check source
+    assert!(workflow.source.is_some(), "Workflow should have a source");
+    let source = workflow.source.as_ref().unwrap();
+    assert_eq!(source.r#type, "nats", "Source type should be nats");
+    assert_eq!(
+        source.config.get("topic").and_then(|v| v.as_str()),
+        Some("data-input"),
+        "Source topic should match"
+    );
     
     // Check agents
     assert_eq!(workflow.agents.len(), 2, "Should have 2 agents");
     
-    // First agent
-    let agent1 = &workflow.agents[0];
-    match agent1.agent_type {
-        AgentType::LLM => { /* Expected */ },
-        _ => panic!("First agent should be of type LLM")
-    };
-    assert_eq!(agent1.id, Some("summarizer".to_string()), "First agent ID should match");
+    // Verify first agent (LLM)
+    let llm_agent = workflow.agents.iter()
+        .find(|a| a.id == "summarizer")
+        .expect("Should find LLM agent");
     
-    // Second agent
-    let agent2 = &workflow.agents[1];
-    match agent2.agent_type {
-        AgentType::MLModel => { /* Expected */ },
-        _ => panic!("Second agent should be of type MLModel")
-    };
-    assert_eq!(agent2.id, Some("classifier".to_string()), "Second agent ID should match");
+    assert_eq!(
+        llm_agent.agent_type, 
+        AgentType::LLM, 
+        "First agent should be of type LLM"
+    );
+    
+    assert_eq!(
+        llm_agent.config.get("engine").and_then(|v| v.as_str()),
+        Some("mistral"),
+        "LLM engine should be mistral"
+    );
+    
+    // Verify second agent (MLModel)
+    let ml_agent = workflow.agents.iter()
+        .find(|a| a.id == "classifier")
+        .expect("Should find MLModel agent");
+    
+    assert_eq!(
+        ml_agent.agent_type,
+        AgentType::MLModel,
+        "Second agent should be of type MLModel"
+    );
+    
+    assert_eq!(
+        ml_agent.config.get("model_path").and_then(|v| v.as_str()),
+        Some("models/classifier"),
+        "Model path should match"
+    );
 }

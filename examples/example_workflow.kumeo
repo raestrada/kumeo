@@ -1,11 +1,141 @@
+// Fraud Detection System
 workflow FraudDetection {
-  source: NATS("transactions")
-  target: NATS("alerts")
-  context: BayesianNetwork("risk.bn")
-
-  agents: [
-    LLM("ollama/llama3", prompt="Classify {{data}} as fraud? Context: {{context}}"),
-    MLModel("isolation_forest.pkl", input=LLM.output),
-    DecisionMatrix("policy.dmx", input=MLModel.output)
+  // Communication
+  nats: "nats://nats:4222"
+  
+  // Data sources
+  source: NATS("transactions.raw")
+  
+  // Output channels
+  target: [
+    NATS("alerts.high_risk"),
+    NATS("alerts.medium_risk"),
+    NATS("transactions.processed")
   ]
+  
+  // Resource definitions
+  models: {
+    // Isolation Forest for anomaly detection
+    fraud_detector: {
+      file: "isolation_forest.onnx",
+      type: "onnx",
+      version: "1.1.0"
+    },
+    // Bayesian Network for risk assessment
+    risk_assessor: {
+      file: "risk_network.bn",
+      type: "bayesian",
+      version: "1.0.0"
+    }
+  }
+  
+  // Configuration
+  config: {
+    risk_thresholds: {
+      high: 0.8,
+      medium: 0.6
+    }
+  }
+  
+  // Agent pipeline
+  agents: [
+    // 1. Transaction Validation
+    DataProcessor(
+      id: "tx_validator",
+      input: "source",
+      output: "validated.tx",
+      config: {
+        schema: "schemas.transaction",
+        required_fields: ["tx_id", "amount", "merchant_id", "card_hash"]
+      }
+    ),
+    
+    // 2. Feature Engineering
+    DataProcessor(
+      id: "feature_engineer",
+      input: "validated.tx",
+      output: "tx.features",
+      config: {
+        features: [
+          "amount",
+          "tx_hour",
+          "is_foreign_country",
+          "is_high_value: amount > 1000"
+        ]
+      }
+    ),
+    
+    // 3. Anomaly Detection
+    MLModel(
+      id: "fraud_detector",
+      input: "tx.features",
+      output: "anomaly.scores",
+      model: "models.fraud_detector",
+      output_schema: "schemas.anomaly_scores"
+    ),
+    
+    // 4. Risk Assessment
+    MLModel(
+      id: "risk_assessor",
+      input: {
+        tx_data: "validated.tx",
+        anomaly_score: "anomaly_scores.score"
+      },
+      output: "risk.assessment",
+      model: "models.risk_assessor",
+      output_schema: "schemas.risk_assessment"
+    ),
+    
+    // 5. Alert Router
+    Router(
+      id: "alert_manager",
+      input: "risk.assessment",
+      output_schema: "schemas.alert_output",
+      rules: {
+        "risk_score >= config.risk_thresholds.high": "target.alerts.high_risk",
+        "risk_score >= config.risk_thresholds.medium": "target.alerts.medium_risk",
+        "default": "target.transactions.processed"
+      }
+    )
+  ]
+  
+  // Monitoring
+  monitor: {
+    metrics: ["processing_time", "anomaly_scores", "risk_scores"],
+    dashboard: "monitoring/fraud_detection"
+  }
+  
+  // Deployment configuration
+  deployment: {
+    // Base images
+    base_images: {
+      default: "kumeo/agent-base:1.0",
+      ml: "kumeo/ml-runtime:1.0"
+    },
+    
+    // Resource allocation
+    resources: {
+      default: {
+        cpu: "500m",
+        memory: "1Gi"
+      },
+      ml_models: {
+        image: "base_images.ml",
+        cpu: "1",
+        memory: "2Gi"
+      }
+    },
+    
+    // Storage paths
+    storage: {
+      models: "/app/models",
+      data: "/app/data"
+    },
+    
+    // Auto-scaling
+    scaling: {
+      min_replicas: 2,
+      max_replicas: 5
+    }
+  }
 }

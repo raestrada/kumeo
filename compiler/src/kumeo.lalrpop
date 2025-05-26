@@ -1,322 +1,228 @@
-use std::str::FromStr;
+use super::ast::*;
+use super::lexer::{Token, TokenWithContext};
 use std::collections::HashMap;
-use crate::ast::{Program, Workflow, Subworkflow, Integration, Source, Target, Context, Agent, AgentType, Argument, Value, Mapping, PathExpr};
-use crate::lexer::Token;
 
-// Use external lexer (our Logos-based lexer)
-grammar<'input>(input: &'input str);
+// Grammar for Kumeo language
+grammar<'kumeo>;
 
-extern {
-    type Location = usize;
-    type Error = String;
-    
-    enum Token<'input> {
-        // Keywords
-        "workflow" => Token::Workflow,
-        "subworkflow" => Token::Subworkflow,
-        "integration" => Token::Integration,
-        "source" => Token::Source,
-        "target" => Token::Target,
-        "context" => Token::Context,
-        "agents" => Token::Agents,
-        "input" => Token::Input,
-        "output" => Token::Output,
-        "mapping" => Token::Mapping,
-        "use" => Token::Use,
-        "config" => Token::Config,
-        "preprocessors" => Token::Preprocessors,
-        "monitor" => Token::Monitor,
-        "deployment" => Token::Deployment,
+// The root production
+pub Workflow = {
+    items: Vec<Item> => {
+        let mut workflow = Workflow {
+            name: "main".to_string(),
+            source: None,
+            target: None,
+            context: None,
+            preprocessors: None,
+            agents: vec![],
+            monitor: None,
+        };
         
-        // Agent types
-        "LLM" => Token::LLM,
-        "MLModel" => Token::MLModel,
-        "BayesianNetwork" => Token::BayesianNetwork,
-        "DecisionMatrix" => Token::DecisionMatrix,
-        "Router" => Token::Router,
-        "Aggregator" => Token::Aggregator,
-        "RuleEngine" => Token::RuleEngine,
-        "DataNormalizer" => Token::DataNormalizer,
-        "MissingValueHandler" => Token::MissingValueHandler,
-        "HumanInLoop" => Token::HumanInLoop,
-        "Custom" => Token::Custom,
-        
-        // Context types
-        "KnowledgeBase" => Token::KnowledgeBase,
-        "Database" => Token::Database,
-        
-        // Source and target types
-        "NATS" => Token::NATS,
-        "HTTP" => Token::HTTP,
-        "FILE" => Token::FILE,
-        
-        // Delimiters and operators
-        "{" => Token::LeftBrace,
-        "}" => Token::RightBrace,
-        "[" => Token::LeftBracket,
-        "]" => Token::RightBracket,
-        "(" => Token::LeftParen,
-        ")" => Token::RightParen,
-        "," => Token::Comma,
-        ":" => Token::Colon,
-        "." => Token::Dot,
-        "=" => Token::Assign,
-        
-        // Literals with values
-        "identifier" => Token::Identifier(<&'input str>),
-        "string" => Token::StringLiteral(<&'input str>),
-        "number" => Token::NumberLiteral(<&'input str>),
-        "true" => Token::True,
-        "false" => Token::False,
-        "null" => Token::Null,
-    }
-}
-
-pub Program: Program = {
-    <workflows:Workflow*> <subworkflows:Subworkflow*> => {
-        let mut program = Program::new();
-        program.workflows = workflows;
-        program.subworkflows = subworkflows;
-        program
-    }
-};
-
-Workflow: Workflow = {
-    "workflow" <name:Identifier> "{" 
-        <source:SourceDef?> 
-        <target:TargetDef?> 
-        <context:ContextDef?>
-        <agents:AgentsDef> 
-        <monitor:MonitorDef?>
-        <deployment:DeploymentDef?>
-    "}" => Workflow {
-        name: name,
-        source: source,
-        target: target,
-        context: context,
-        preprocessors: None,
-        agents: agents,
-        monitor: monitor,
-        deployment: deployment,
-    }
-};
-
-SourceDef: Source = {
-    "source" ":" <source_value:SourceValue> => source_value
-};
-
-TargetDef: Target = {
-    "target" ":" <target_value:TargetValue> => target_value
-};
-
-AgentsDef: Vec<Agent> = {
-    "agents" ":" "[" <agents:AgentList> "]" => agents
-};
-
-// List of agents separated by commas
-AgentList: Vec<Agent> = {
-    <head:Agent> <tail:("," Agent)*> => {
-        let mut agents = vec![head];
-        agents.extend(tail.into_iter().map(|(_, agent)| agent));
-        agents
-    },
-    => Vec::new()
-};
-
-SourceValue: Source = {
-    // Específicos para los tipos de fuente soportados
-    "NATS" "(" <topic:StringLiteral> ")" => Source::NATS(topic, None),
-    "HTTP" "(" <topic:StringLiteral> ")" => Source::HTTP(topic, None),
-    "FILE" "(" <topic:StringLiteral> ")" => Source::File(topic, None),
-    
-    // Para tipos personalizados
-    <name:Identifier> "(" <topic:StringLiteral> ")" => 
-        match name.as_str() {
-            "Kafka" => Source::Kafka(topic, None),
-            "MQTT" => Source::MQTT(topic, None),
-            _ => Source::Custom(name, vec![Value::String(topic)])
-        }
-};
-
-TargetValue: Target = {
-    // Específicos para los tipos de destino soportados
-    "NATS" "(" <topic:StringLiteral> ")" => Target::NATS(topic, None),
-    "HTTP" "(" <topic:StringLiteral> ")" => Target::HTTP(topic, None),
-    "FILE" "(" <topic:StringLiteral> ")" => Target::File(topic, None),
-    
-    // Para tipos personalizados
-    <name:Identifier> "(" <topic:StringLiteral> ")" => 
-        match name.as_str() {
-            "Kafka" => Target::Kafka(topic, None),
-            "MQTT" => Target::MQTT(topic, None),
-            _ => Target::Custom(name, vec![Value::String(topic)])
-        }
-};
-
-Agent: Agent = {
-    <agent_type:AgentType> "(" <args:Arguments> ")" => {
-        let mut id = None;
-        let mut config = Vec::new();
-        
-        for arg in args {
-            if let Argument::Named(name, Value::String(value)) = &arg {
-                if name == "id" {
-                    id = Some(value.clone());
-                } else {
-                    config.push(arg.clone());
-                }
-            } else {
-                config.push(arg.clone());
+        for item in items {
+            match item {
+                Item::Agent(a) => workflow.agents.push(a),
+                Item::Config(c) => {
+                    if workflow.context.is_none() {
+                        workflow.context = Some(Context {
+                            config: c,
+                            models: HashMap::new(),
+                            schemas: HashMap::new(),
+                        });
+                    }
+                },
+                Item::Source(s) => workflow.source = Some(s),
+                Item::Target(t) => workflow.target = Some(t),
             }
         }
         
-        Agent {
-            id,
+        workflow
+    }
+};
+
+// Top-level items in a workflow
+Item: Item = {
+    Agent => Item::Agent(<>),
+    Config => Item::Config(<>),
+    Source => Item::Source(<>),
+    Target => Item::Target(<>),
+};
+
+// Agent definition
+Agent: Agent = {
+    <agent_type: AgentType> <id: Ident> <_: LeftBrace>
+    <config: KeyValuePairs>
+    <_: RightBrace>
+    => {
+        let mut agent = Agent {
+            id: id.to_string(),
             agent_type,
-            config,
+            config: HashMap::new(),
+            subscribe: Vec::new(),
+            publish: Vec::new(),
+            resources: None,
+            secrets: None,
+        };
+        
+        for (key, value) in config {
+            match key.as_str() {
+                "subscribe" => {
+                    if let Value::Array(items) = value {
+                        agent.subscribe = items.into_iter()
+                            .filter_map(|v| v.as_string())
+                            .collect();
+                    }
+                },
+                "publish" => {
+                    if let Value::Array(items) = value {
+                        agent.publish = items.into_iter()
+                            .filter_map(|v| v.as_string())
+                            .collect();
+                    }
+                },
+                _ => {
+                    agent.config.insert(key, value);
+                },
+            }
         }
+        
+        agent
     }
 };
 
-// Add support for comma-separated arguments
-Arguments: Vec<Argument> = {
-    <head:Argument> <tail:("," Argument)*> => {
-        let mut args = vec![head];
-        args.extend(tail.into_iter().map(|(_, arg)| arg));
-        args
-    },
-    => Vec::new()
-};
-
+// Agent types
 AgentType: AgentType = {
-    "LLM" => AgentType::LLM,
-    "MLModel" => AgentType::MLModel,
-    "BayesianNetwork" => AgentType::BayesianNetwork,
-    <name:Identifier> => AgentType::Custom(name)
-};
-
-// Add support for Subworkflows
-Subworkflow: Subworkflow = {
-    "subworkflow" <name:Identifier> "{" 
-        <input_vals:SubworkflowInputDef?>
-        <output_vals:SubworkflowOutputDef?>
-        <context:ContextDef?>
-        <agents:AgentsDef> 
-    "}" => Subworkflow {
-        name: name,
-        input: input_vals,
-        output: output_vals,
-        context: context,
-        agents: agents,
-    }
-};
-
-// Input definition for subworkflows
-SubworkflowInputDef: Vec<String> = {
-    "input" ":" "[" <inputs:StringList> "]" => inputs
-};
-
-// Output definition for subworkflows
-SubworkflowOutputDef: Vec<String> = {
-    "output" ":" "[" <outputs:StringList> "]" => outputs
-};
-
-// List of strings for input/output definitions
-StringList: Vec<String> = {
-    <head:StringLiteral> <tail:("," StringLiteral)*> => {
-        let mut strings = vec![head];
-        strings.extend(tail.into_iter().map(|(_, s)| s));
-        strings
-    },
-    => Vec::new()
-};
-
-// Add support for Context
-ContextDef: Context = {
-    "context" ":" "KnowledgeBase" "(" <name:StringLiteral> ")" => {
-        Context::KnowledgeBase(name, None)
-    },
-    "context" ":" "BayesianNetwork" "(" <name:StringLiteral> ")" => {
-        Context::BayesianNetwork(name, None)
-    },
-    "context" ":" "Database" "(" <db_type:StringLiteral> "," <conn_string:StringLiteral> ")" => {
-        Context::Database(db_type, conn_string)
-    },
-    "context" ":" <name:Identifier> "(" <args:Arguments> ")" => {
-        Context::Custom(name, args.into_iter().map(|a| match a {
-            Argument::Named(_, v) => v,
-            Argument::Positional(v) => v
-        }).collect())
-    }
-};
-
-Argument: Argument = {
-    <name:Identifier> ":" <value:StringLiteral> => 
-        Argument::Named(name, Value::String(value)),
-    <name:Identifier> ":" <value:BooleanLiteral> => 
-        Argument::Named(name, Value::Boolean(value)),
-    <name:Identifier> ":" <value:NumberLiteral> => 
-        Argument::Named(name, Value::Number(value)),
-    <name:Identifier> ":" <value:ObjectLiteral> => 
-        Argument::Named(name, Value::Object(value)),
-};
-
-// Add support for Monitor configuration
-MonitorDef: HashMap<String, Value> = {
-    "monitor" ":" "{" <config:ConfigEntries> "}" => config
-};
-
-// Add support for Deployment configuration
-DeploymentDef: HashMap<String, Value> = {
-    "deployment" ":" "{" <config:ConfigEntries> "}" => config
-};
-
-// Configuration entries as key-value pairs
-ConfigEntries: HashMap<String, Value> = {
-    <head:ConfigEntry> <tail:("," ConfigEntry)*> => {
-        let mut map = HashMap::new();
-        map.insert(head.0, head.1);
-        for (_, (key, value)) in tail {
-            map.insert(key, value);
+    <t: (Token![DataProcessor] | Token![MLModel] | Token![LLM] | Token![Router] | Token![DecisionMatrix] | Token![HumanReview])> => {
+        match t {
+            Token::DataProcessor => AgentType::DataProcessor,
+            Token::MLModel => AgentType::MLModel,
+            Token::LLM => AgentType::LLM,
+            Token::Router => AgentType::Router,
+            Token::DecisionMatrix => AgentType::DecisionMatrix,
+            Token::HumanReview => AgentType::HumanReview,
+            _ => unreachable!(),
         }
-        map
     },
-    => HashMap::new()
 };
 
-// Single configuration entry as key-value pair
-ConfigEntry: (String, Value) = {
-    <key:Identifier> ":" <value:Value> => (key, value)
+// Configuration section
+Config: HashMap<String, Value> = {
+    <Token![config]> <_: LeftBrace>
+    <pairs: KeyValuePairs>
+    <_: RightBrace>
+    => pairs.into_iter().collect()
 };
 
-// Support for different value types
+// Source definition
+Source: Source = {
+    <Token![source]> <id: Ident> <_: LeftBrace>
+    <pairs: KeyValuePairs>
+    <_: RightBrace>
+    => {
+        let mut source = Source {
+            id: id.to_string(),
+            r#type: "".to_string(),
+            config: HashMap::new(),
+        };
+        
+        for (key, value) in pairs {
+            if key == "type" {
+                if let Value::String(s) = value {
+                    source.r#type = s;
+                }
+            } else {
+                source.config.insert(key, value);
+            }
+        }
+        
+        source
+    }
+};
+
+// Target definition (similar to Source)
+Target: Target = {
+    <Token![target]> <id: Ident> <_: LeftBrace>
+    <pairs: KeyValuePairs>
+    <_: RightBrace>
+    => {
+        let mut target = Target {
+            id: id.to_string(),
+            r#type: "".to_string(),
+            config: HashMap::new(),
+        };
+        
+        for (key, value) in pairs {
+            if key == "type" {
+                if let Value::String(s) = value {
+                    target.r#type = s;
+                }
+            } else {
+                target.config.insert(key, value);
+            }
+        }
+        
+        target
+    }
+};
+
+// Key-value pairs for configurations
+KeyValuePairs: Vec<(String, Value)> = {
+    => vec![],
+    <mut pairs: KeyValuePairs> <key: Ident> <_: Token![:]> <value: Value> <_: Token![,]> => {
+        pairs.push((key.to_string(), value));
+        pairs
+    },
+    <mut pairs: KeyValuePairs> <key: Ident> <_: Token![:]> <value: Value> => {
+        pairs.push((key.to_string(), value));
+        pairs
+    },
+};
+
+// Value types
 Value: Value = {
-    <s:StringLiteral> => Value::String(s),
-    <n:NumberLiteral> => Value::Number(n),
-    <b:BooleanLiteral> => Value::Boolean(b),
-    <o:ObjectLiteral> => Value::Object(o),
+    <s: StringLit> => Value::String(s.to_string()),
+    <n: Number> => Value::Number(n),
+    <Token![true]> => Value::Bool(true),
+    <Token![false]> => Value::Bool(false),
+    <Token![null]> => Value::Null,
+    <_: LeftBracket> <elements: Comma<Value>> <_: RightBracket> => Value::Array(elements),
+    <_: LeftBrace> <pairs: KeyValuePairs> <_: RightBrace> => {
+        Value::Object(pairs.into_iter().collect())
+    },
 };
 
-// Object literal as a collection of key-value pairs
-ObjectLiteral: HashMap<String, Value> = {
-    "{" <entries:ConfigEntries> "}" => entries
+// Terminal rules
+Ident: &'kumeo str = {
+    <Token::Ident(s)> => s,
 };
 
-// Boolean literal
-BooleanLiteral: bool = {
-    "true" => true,
-    "false" => false
+StringLit: &'kumeo str = {
+    <Token::StringLit(s)> => s.trim_matches(|c| c == '"' || c == '\''),
 };
 
-// For literals, we use the lexer token types directly
-NumberLiteral: f64 = {
-    <n:"number"> => n.parse::<f64>().unwrap_or(0.0)
+Number: f64 = {
+    <Token::Number(n)> => n,
 };
 
-Identifier: String = {
-    <id:"identifier"> => id.to_string()
-};
-
-StringLiteral: String = {
-    <s:"string"> => s.to_string()
-};
+// Token aliases for better readability
+Token![config] = { Token::Config };
+Token![source] = { Token::Source };
+Token![target] = { Token::Target };
+Token![DataProcessor] = { Token::DataProcessor };
+Token![MLModel] = { Token::MLModel };
+Token![LLM] = { Token::LLM };
+Token![Router] = { Token::Router };
+Token![DecisionMatrix] = { Token::DecisionMatrix };
+Token![HumanReview] = { Token::HumanReview };
+Token![:] = { Token::Colon };
+Token![,] = { Token::Comma };
+Token![.] = { Token::Dot };
+Token![=] = { Token::Assign };
+Token![true] = { Token::True };
+Token![false] = { Token::False };
+Token![null] = { Token::Null };
+LeftBrace = { Token::LeftBrace };
+RightBrace = { Token::RightBrace };
+LeftBracket = { Token::LeftBracket };
+RightBracket = { Token::RightBracket };
+LeftParen = { Token::LeftParen };
+RightParen = { Token::RightParen };

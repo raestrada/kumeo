@@ -27,11 +27,15 @@ futures = "0.3"       # Futures support
 dirs = "5.0"          # Cross-platform config paths
 dirs-next = "2.0"     # Next-gen dirs
 pathdiff = "0.2"      # Path manipulation
-anyhow = "1.0"        # Error handling
+anyhow = { version = "1.0", features = ["backtrace"] }  # Error handling with backtraces
 once_cell = "1.18"    # Lazy static initialization
 temp-dir = "0.1"      # Temporary directories
 sha2 = "0.10"         # Hashing for cache validation
 hex = "0.4"           # Hex encoding
+clap = { version = "4.4", features = ["derive", "env"] }  # Command line parsing
+console = "0.15"      # Console output styling
+indoc = "2.0"         # Indented string literals
+shellexpand = "3.1"   # Shell-like path expansion
 
 # Logging and tracing
 tracing = "0.1"       # Tracing library with structured logging

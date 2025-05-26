@@ -1,179 +1,54 @@
-use crate::ast::Program;
+use crate::ast::*;
 use crate::error::{KumeoError, Result};
-use crate::lexer::{Lexer, Token, TokenWithContext};
-use lalrpop_util::ParseError;
-use tracing::{debug, info, error};
+use crate::lexer::Lexer;
+use crate::semantic::SemanticAnalyzer;
+use lalrpop_util::lalrpop_mod;
+use tracing::{debug, error, info};
 
-/// A lexer adapter to connect our Logos lexer with LALRPOP
-pub struct LexerAdapter<'input> {
-    // Sin usar por ahora, pero podría ser útil para funcionalidades futuras
-    #[allow(dead_code)]
-    lexer: Lexer<'input>,
-    token_index: usize,
-    tokens: Vec<TokenWithContext<'input>>,
-}
-
-impl<'input> LexerAdapter<'input> {
-    pub fn new(input: &'input str) -> Result<Self> {
-        let lexer = Lexer::new(input)?;
-        let tokens = lexer.get_tokens().clone();
-        debug!(token_count = tokens.len(), "Initialized lexer adapter");
-        
-        Ok(Self {
-            lexer,
-            token_index: 0,
-            tokens,
-        })
-    }
-}
-
-impl<'input> Iterator for LexerAdapter<'input> {
-    type Item = std::result::Result<(usize, Token<'input>, usize), String>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.token_index >= self.tokens.len() {
-            return None;
-        }
-        
-        let token_with_context = &self.tokens[self.token_index];
-        self.token_index += 1;
-        
-        let start = token_with_context.span.start;
-        let token = token_with_context.token.clone();
-        let end = token_with_context.span.end;
-        
-        Some(Ok((start, token, end)))
-    }
-}
+// Generar el parser a partir de la gramática LALRPOP
+lalrpop_mod!(
+    #[allow(clippy::all)]
+    #[allow(unused)]
+    pub kumeo
+);
 
 /// Parse Kumeo source code into an AST
-pub fn parse(input: &str) -> Result<Program> {
+pub fn parse(input: &str) -> Result<Workflow> {
     info!("Parsing Kumeo source code");
     
-    // Create our Logos-based lexer adapter
-    let lexer = match LexerAdapter::new(input) {
+    // Crear el lexer
+    let lexer = match Lexer::new(input) {
         Ok(lexer) => lexer,
         Err(e) => {
-            error!(error = ?e, "Failed to initialize lexer");
+            error!("Failed to create lexer: {}", e);
             return Err(e);
         }
     };
     
-    // Use our lexer with the LALRPOP-generated parser
-    match crate::kumeo::ProgramParser::new().parse(input, lexer) {
-        Ok(program) => Ok(program),
-        Err(err) => {
-            // Convert LALRPOP error to KumeoError
-            match err {
-                ParseError::InvalidToken { location } => {
-                    Err(KumeoError::ParserError {
-                        line: count_lines(input, location),
-                        column: compute_column(input, location),
-                        message: format!("Invalid token at position {}", location),
-                    })
-                },
-                ParseError::UnrecognizedEof { location, expected } => {
-                    Err(KumeoError::ParserError {
-                        line: count_lines(input, location),
-                        column: compute_column(input, location),
-                        message: format!("Unexpected end of file, expected: {}", expected.join(", ")),
-                    })
-                },
-                ParseError::UnrecognizedToken { token: (start, _, end), expected } => {
-                    let token_text = &input[start..end];
-                    Err(KumeoError::ParserError {
-                        line: count_lines(input, start),
-                        column: compute_column(input, start),
-                        message: format!("Unexpected token '{}', expected: {}", token_text, expected.join(", ")),
-                    })
-                },
-                ParseError::ExtraToken { token: (start, _, end) } => {
-                    let token_text = &input[start..end];
-                    Err(KumeoError::ParserError {
-                        line: count_lines(input, start),
-                        column: compute_column(input, start),
-                        message: format!("Extra token '{}'", token_text),
-                    })
-                },
-                ParseError::User { error } => {
-                    Err(KumeoError::ParserError {
-                        line: 0,
-                        column: 0,
-                        message: format!("Parser error: {}", error),
-                    })
-                },
-            }
-        }
-    }
-}
-
-// Helper function to count lines up to a position
-fn count_lines(input: &str, pos: usize) -> usize {
-    input[..pos.min(input.len())].chars().filter(|&c| c == '\n').count() + 1
-}
-
-// Helper function to compute column number
-fn compute_column(input: &str, pos: usize) -> usize {
-    let safe_pos = pos.min(input.len());
-    if let Some(line_start) = input[..safe_pos].rfind('\n') {
-        safe_pos - line_start
-    } else {
-        safe_pos + 1 // 1-based indexing
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
+    // Obtener el parser generado por LALRPOP
+    let parser = kumeo::WorkflowParser::new();
     
-    #[test]
-    fn test_basic_workflow() {
-        let input = r#"
-            workflow SimpleFlow {
-                source: NATS("input")
-                target: NATS("output")
-                
-                agents: [
-                    LLM(
-                        id: "processor",
-                        engine: "ollama/llama3"
-                    )
-                ]
-            }
-        "#;
-        
-        match parse(input) {
-            Ok(program) => {
-                assert_eq!(program.workflows.len(), 1);
-                assert_eq!(program.workflows[0].name, "SimpleFlow");
-            },
-            Err(e) => panic!("Failed to parse: {}", e),
+    // Parsear el código fuente
+    let workflow = match parser.parse(lexer) {
+        Ok(workflow) => {
+            debug!("Successfully parsed workflow: {}", workflow.name);
+            workflow
         }
+        Err(e) => {
+            // Convertir el error de LALRPOP a un error de Kumeo
+            let error_msg = format!("Parse error: {}", e);
+            error!("{}", error_msg);
+            return Err(KumeoError::ParserError(error_msg));
+        }
+    };
+    
+    // Realizar análisis semántico
+    let mut analyzer = SemanticAnalyzer::new();
+    if let Err(e) = analyzer.analyze_workflow(&workflow) {
+        error!("Semantic error: {}", e);
+        return Err(e);
     }
     
-    #[test]
-    fn test_workflow_with_prompt() {
-        let input = r#"
-            workflow SimpleFlow {
-                source: NATS("input")
-                target: NATS("output")
-                
-                agents: [
-                    LLM(
-                        id: "processor",
-                        engine: "ollama/llama3",
-                        prompt: "Process this: {{data}}"
-                    )
-                ]
-            }
-        "#;
-        
-        match parse(input) {
-            Ok(program) => {
-                assert_eq!(program.workflows.len(), 1);
-                assert_eq!(program.workflows[0].name, "SimpleFlow");
-            },
-            Err(e) => panic!("Failed to parse: {}", e),
-        }
-    }
+    debug!("Successfully validated workflow: {}", workflow.name);
+    Ok(workflow)
 }

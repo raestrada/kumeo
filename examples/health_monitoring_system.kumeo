@@ -1,211 +1,353 @@
 // Health Monitoring System
-// This workflow orchestrates various agents to monitor patient vitals,
-// analyze medical data, and provide real-time health insights and alerts
-
 workflow HealthMonitoringSystem {
-  // Define entry points for data
-  source: [
-    NATS("patient/vitals"),          // Stream of vital signs from medical devices
-    NATS("patient/lab_results"),     // Lab test results
-    NATS("patient/medical_history")  // Patient records from database
-  ]
+  // Communication
+  nats: "nats://nats:4222"
   
-  // Define output channels
+  // Data sources (NATS topics)
+  source: NATS("patient.data")
+  
+  // Output channels
   target: [
-    NATS("medical/alerts"),           // Critical alerts for medical staff
-    NATS("medical/insights"),         // General insights for medical review
-    NATS("patient/recommendations")   // Personalized recommendations for patients
+    NATS("alerts.critical"),
+    NATS("alerts.warning"),
+    NATS("updates")
   ]
   
-  // Shared context for all agents
-  context: [
-    KnowledgeBase("medical_guidelines.kb"),
-    BayesianNetwork("disease_risk.bn"),
-    Database("patient_records.db", query="SELECT * FROM patients WHERE id={{patient_id}}")
-  ]
+  // Resource definitions
+  models: {
+    // ONNX model for anomaly detection
+    anomaly_detector: {
+      file: "anomaly_detector.onnx",
+      type: "onnx",
+      version: "1.0.0"
+    },
+    
+    // PyTorch model for risk assessment
+    risk_predictor: {
+      file: "risk_predictor.pt",
+      type: "pytorch",
+      version: "2.0.1"
+    },
+    
+    // ONNX model for hallucination detection
+    hallucination_detector: {
+      file: "hallucination_detector.onnx",
+      type: "onnx",
+      version: "1.0.0",
+      description: "Detects hallucinations and inconsistencies in LLM outputs"
+    }
+  }
   
-  // Data preparation and enrichment
-  preprocessors: [
-    DataNormalizer("vitals_normalizer.json"),
-    MissingValueHandler(strategy="median_imputation")
-  ]
+  // Data files
+  data: {
+    medical_guidelines: "medical_guidelines.json",
+    risk_factors: {
+      file: "risk_factors.parquet",
+      description: "Risk factor database with scores"
+    }
+  }
   
-  // Define agent collaboration workflow
+  // Schemas for validation
+  schemas: {
+    patient_data: "patient_data.json",
+    anomaly_scores: "anomaly_scores.json",
+    risk_assessment: "risk_assessment.json",
+    llm_output: "llm_output.json",
+    alert_output: "alert_output.json"
+  }
+  
+  // Configuration files
+  config: {
+    validation_rules: "validation_rules.json",
+    normalization: "normalization.json",
+    risk_rules: "risk_rules.json"
+  }
+  
+  // Agent pipeline
   agents: [
-    // Vital signs anomaly detection
+    // 1. Data Validation
+    DataProcessor(
+      id: "data_validator",
+      input: "source",
+      output: "validated.data",
+      config: {
+        schema: "schemas.patient_data",
+        rules: "config.validation_rules"
+      }
+    ),
+    
+    // 2. Anomaly Detection
     MLModel(
       id: "anomaly_detector",
-      model: "isolation_forest.onnx",
-      input: source.patient/vitals,
+      input: "validated.data/vitals",
+      output: "anomaly.scores",
+      model: "models.anomaly_detector",
+      output_schema: "schemas.anomaly_scores",
       config: {
-        threshold: 0.85,
-        features: ["heart_rate", "blood_pressure", "oxygen", "temperature"]
+        threshold: 0.85
       }
     ),
     
-    // Medical condition assessment
-    LLM(
-      id: "condition_assessor",
-      engine: "ollama/mistral",
+    // 3. Risk Assessment
+    MLModel(
+      id: "risk_assessor",
       input: {
-        vitals: preprocessors.output,
-        anomalies: anomaly_detector.output,
-        history: source.patient/medical_history
+        vitals: "validated.data",
+        anomalies: "anomaly_detector.output"
+      },
+      output: "risk.assessment",
+      model: "models.risk_predictor",
+      output_schema: "schemas.risk_assessment",
+      context: "data.risk_factors"
+    ),
+    
+    // 4. Medical Analysis (LLM)
+    LLM(
+      id: "medical_advisor",
+      input: {
+        patient_data: "validated.data",
+        risk: "risk_assessor.output"
+      },
+      output: "analysis.raw_results",
+      provider: {
+        ollama: {
+          model: "medllama2",
+          temperature: 0.7,
+          max_tokens: 1000
+        }
+      },
+      output_schema: "schemas.llm_output",
+      context: [
+        "data.medical_guidelines",
+        "SELECT * FROM read_parquet('data.risk_factors') WHERE score > 0.5"
+      ],
+      prompt: """
+        Analyze patient data and provide medical analysis.
+        Follow the schema in output_schema.
+        
+        Patient Data:
+        {{patient_data}}
+        
+        Risk Assessment:
+        {{risk}}
+        
+        Guidelines:
+        {{context.medical_guidelines}}
+      """
+    ),
+    
+    // 5. Output Validation (Decision Matrix + Safety)
+    DecisionMatrix(
+      id: "safety_validator",
+      input: "analysis.raw_results",
+      output: "analysis.results",
+      rules: [
+        // Reglas de formato
+        {
+          name: "valid_json",
+          condition: "is_valid_json(input)",
+          error: "Invalid JSON format"
+        },
+        // Reglas de negocio
+        {
+          name: "valid_urgency",
+          condition: "input.urgency in ['low', 'medium', 'high', 'critical']",
+          error: "Invalid urgency level"
+        },
+        {
+          name: "required_fields",
+          condition: "all(field in input for field in ['patient_id', 'findings', 'recommendations'])",
+          error: "Missing required fields"
+        }
+      ],
+      on_failure: {
+        action: "quarantine",
+        retry: 2,
+        fallback: {
+          action: "reject",
+          channel: "alerts.invalid_output"
+        }
+      }
+    ),
+    
+    // 6. Hallucination Detection (ML-based)
+    MLModel(
+      id: "hallucination_detector",
+      input: {
+        patient_data: "validated.data",
+        analysis: "analysis.results"
+      },
+      output: "analysis.validity_score",
+      model: {
+        file: "hallucination_detector.onnx",
+        type: "onnx",
+        version: "1.0.0"
+      },
+      config: {
+        confidence_threshold: 0.85,
+        max_retries: 1,
+        features: [
+          "consistency_with_patient_data",
+          "medical_term_accuracy",
+          "logical_consistency"
+        ]
+      }
+    ),
+    
+    // 5. Human Review for Critical Cases
+    HumanReview(
+      id: "critical_case_review",
+      input: "analysis.results",
+      output: "reviewed.analysis",
+      // Only trigger for high-risk cases
+      when: "analysis.risk_level in ['high', 'critical']",
+      // Configuration for the review interface
+      config: {
+        // Web interface configuration
+        ui: {
+          title: "Medical Case Review Required",
+          description: "Please review this high-risk patient case",
+          // Fields to display for review
+          fields: [
+            { field: "patient_id", label: "Patient ID", type: "text" },
+            { field: "risk_level", label: "Risk Level", type: "badge" },
+            { field: "findings", label: "Key Findings", type: "text" },
+            { 
+              field: "recommendation", 
+              label: "Review Notes", 
+              type: "textarea",
+              required: true
+            }
+          ]
+        },
+        // Notification settings
+        notifications: {
+          // Email notification
+          email: {
+            to: "${env.REVIEW_TEAM_EMAIL}",
+            subject: "[Action Required] High-Risk Patient Review"
+          },
+          // Slack/Teams webhook (optional)
+          webhook: "${env.REVIEW_WEBHOOK_URL}"
+        },
+        // Timeout and escalation
+        timeout: "24h",
+        // What to do if no response (approve/reject/escalate)
+        on_timeout: "escalate",
+        // Who to escalate to if no response
+        escalation_path: "${env.ESCALATION_TEAM_EMAIL}"
+      }
+    ),
+    
+    // 6. Triage Recommendations (updated to use reviewed analysis when available)
+    LLM(
+      id: "triage_advisor",
+      input: {
+        analysis: "reviewed.analysis ?? analysis.results",
+        review_notes: "reviewed.analysis?.review_notes ?? ''"
+      },
+      output: "triage.recommendation",
+      provider: {
+        ollama: {
+          model: "llama3",
+          temperature: 0.3,
+          max_tokens: 500
+        }
       },
       prompt: """
-        Based on the following patient data:
-        Vitals: {{vitals}}
-        Detected anomalies: {{anomalies}}
-        Medical history: {{history}}
+        Based on the medical analysis and any human review, provide triage recommendations.
+        Be concise and focus on urgency and next steps.
         
-        Provide a medical assessment of the patient's current condition.
-        Consider potential risks, urgency level, and recommended actions.
-        Use context from the medical guidelines knowledge base.
-        """
+        Analysis:
+        {{analysis}}
+        
+        {{#if review_notes}}
+        Human Review Notes:
+        {{review_notes}}
+        {{/if}}
+      """
     ),
     
-    // Human specialist integration
-    HumanInLoop(
-      id: "medical_specialist",
-      trigger: "condition_assessor.urgency > 7",
-      interface: "web_dashboard",
-      timeout: "15m",
-      fallback: "escalation_protocol.wf"
-    ),
-    
-    // Treatment recommendation
-    DecisionTree(
-      id: "treatment_recommender",
-      model: "treatment_protocols.dt",
-      input: {
-        assessment: condition_assessor.output,
-        lab_results: source.patient/lab_results,
-        specialist_input: medical_specialist.output
-      }
-    ),
-    
-    // Alert router based on severity
+    // 6. Alert Router
     Router(
-      id: "alert_router",
-      rules: {
-        "severity == 'critical'": target.medical/alerts,
-        "severity == 'moderate'": target.medical/insights,
-        "severity == 'low'": target.patient/recommendations
-      },
+      id: "alert_manager",
       input: {
-        assessment: condition_assessor.output,
-        recommendation: treatment_recommender.output,
-        severity: "auto" // Auto-determined from input data
+        analysis: "analysis.results",
+        triage: "triage_advisor.output"
+      },
+      output_schema: "schemas.alert_output",
+      rules: {
+        "analysis.urgency == 'critical'": "target.alerts.critical",
+        "analysis.urgency == 'warning'": "target.alerts.warning",
+        "default": "target.updates"
       }
     )
   ]
   
-  // Monitoring and logging configuration
+  // Monitoring
   monitor: {
-    metrics: ["response_time", "accuracy", "alert_frequency"],
-    dashboard: "grafana/medical_monitoring",
-    alerts: {
-      "response_time > 5s": "ops/latency_alert",
-      "daily_false_positives > 5": "quality/review_needed"
-    }
+    metrics: ["processing_time", "error_rate", "llm_latency"],
+    dashboard: "monitoring/health"
   }
   
   // Deployment configuration
   deployment: {
-    kubernetes: {
-      namespace: "medical-monitoring",
-      resources: {
-        "anomaly_detector": {
-          cpu: "2",
-          memory: "4Gi",
-          gpu: "1"
-        },
-        "condition_assessor": {
-          cpu: "4",
-          memory: "8Gi"
-        }
+    // Registry configuration
+    registry: {
+      // Kumeo's base images registry (read-only)
+      kumeo: "ghcr.io/kumeo",
+      
+      // User's registry for compiled images
+      user: {
+        url: "${env.DOCKER_REGISTRY}",  // e.g., ghcr.io/your-org
+        // Authentication via environment variables:
+        // - DOCKER_USERNAME
+        // - DOCKER_PASSWORD
+        // - DOCKER_EMAIL (optional)
       },
-      scaling: {
-        "min_replicas": 2,
-        "max_replicas": 10,
-        "target_cpu_utilization": 70
-      }
-    }
-  }
-}
-
-// Define a specialized subworkflow that can be reused
-subworkflow PatientRiskAssessment {
-  input: [
-    "vitals_data",
-    "medical_history",
-    "demographics"
-  ]
-  
-  output: [
-    "risk_score",
-    "risk_factors",
-    "recommended_tests"
-  ]
-  
-  context: [
-    RiskModel("comorbidity_calculator.rm")
-  ]
-  
-  agents: [
-    // Age-specific risk calculation
-    DemographicAnalyzer(
-      id: "age_risk",
-      model: "age_risk.model",
-      input: input.demographics
-    ),
-    
-    // Comorbidity analysis
-    MLModel(
-      id: "comorbidity_analyzer",
-      model: "comorbidity.pkl",
-      input: input.medical_history
-    ),
-    
-    // Current vitals risk
-    RuleEngine(
-      id: "vitals_risk",
-      rules: "vitals_risk_rules.json",
-      input: input.vitals_data
-    ),
-    
-    // Aggregate risk calculation
-    Aggregator(
-      id: "risk_calculator",
-      method: "weighted_average",
-      weights: {
-        "age_risk": 0.3,
-        "comorbidity_analyzer": 0.4,
-        "vitals_risk": 0.3
-      },
-      output_mapping: {
-        "score": output.risk_score,
-        "factors": output.risk_factors,
-        "recommendations": output.recommended_tests
-      }
-    )
-  ]
-}
-
-// Integration of the subworkflow into the main workflow
-integration {
-  workflow: HealthMonitoringSystem,
-  use: PatientRiskAssessment,
-  mapping: {
-    input: {
-      "vitals_data": source.patient/vitals,
-      "medical_history": source.patient/medical_history,
-      "demographics": context.Database
+      
+      // Model registry (can be same as user registry)
+      models: "${env.MODEL_REGISTRY:-${registry.user.url}/models}"
     },
-    output: {
-      "risk_score": condition_assessor.context.risk,
-      "risk_factors": target.medical/insights,
-      "recommended_tests": treatment_recommender.input.recommended_tests
+    
+    // Base images from Kumeo's registry
+    base_images: {
+      default: "${deployment.registry.kumeo}/agent-base:1.0",
+      ml: "${deployment.registry.kumeo}/ml-runtime:1.0",
+      llm: "${deployment.registry.kumeo}/llm-runtime:1.0"
+    },
+    
+    // Resource allocation
+    resources: {
+      default: {
+        cpu: "500m",
+        memory: "1Gi"
+      },
+      ml_models: {
+        image: "base_images.ml",
+        cpu: "2",
+        memory: "4Gi",
+        gpu: true
+      },
+      llm: {
+        image: "base_images.llm",
+        cpu: "4",
+        memory: "16Gi",
+        gpu: true
+      }
+    },
+    
+    // Storage paths
+    storage: {
+      models: "/app/models",
+      data: "/app/data",
+      cache: "/app/cache"
+    },
+    
+    // Auto-scaling
+    scaling: {
+      min_replicas: 2,
+      max_replicas: 10
     }
   }
 }
